@@ -22,6 +22,7 @@ let page;
 const shot = (n) => page.screenshot({ path: `${OUT}/${n}.png` });
 const assert = (c, m) => { if (!c) throw new Error(m); };
 const tid = (id) => page.getByTestId(id);
+const kfh = async () => { await tid('knit-from-here').click(); await page.waitForSelector('[data-testid=knit-screen]'); await tid('to-outline').click(); await page.waitForSelector('[data-testid=outline]'); };
 async function test(name, fn) {
   try { const d = await fn(); results.push({ name, pass: true, detail: d }); console.log('PASS', name, d ?? ''); }
   catch (e) { results.push({ name, pass: false, detail: String(e.message).split('\n')[0] }); console.log('FAIL', name, '\n   ', String(e.message).split('\n').slice(0, 3).join('\n    ')); try { await shot(`FAIL-${name.slice(0, 18).replace(/\W+/g, '-')}`); } catch {} }
@@ -85,7 +86,7 @@ await test('P2 choose XL, create project, dash lists resolve (cast on 68-68-68-7
   const chip = (await page.locator('[data-testid=suggestion]').allInnerTexts()).join('|');
   assert(/STITCH COUNTER: 74/.test(chip), `chips ${chip}`);
   await page.locator('[data-testid=suggestion]', { hasText: 'STITCH COUNTER' }).first().click();
-  await tid('knit-from-here').click();
+  await kfh();
   await page.waitForSelector('[data-testid=live-panel] [data-testid=stitch-counter]');
   return `XL → ${val}; stitch counter suggested and started at 74`;
 });
@@ -93,7 +94,7 @@ await test('P2 choose XL, create project, dash lists resolve (cast on 68-68-68-7
 await test('P3 YOKE guide: V-neck every 4th row (14 times for XL), complex raglan flagged NEEDS REVIEW', async () => {
   await openSec('YOKE');
   await openInstruction(/row-by-row guide/);
-  await tid('knit-from-here').click();
+  await kfh();
   await page.waitForSelector('[data-testid=tracker]');
   const t1 = await tid('tracker').innerText();
   assert(/ROW 1\b/.test(t1) && /Shaping row 1 of 14/.test(t1), `row 1: ${t1.slice(0, 200)}`);

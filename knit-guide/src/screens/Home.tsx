@@ -99,7 +99,7 @@ export function Home() {
         </div>
       )}
 
-      <p className="tiny muted" style={{ textAlign: 'center', padding: '0 16px 90px', marginTop: -70 }} data-testid="build-stamp">Build {__BUILD__} · single-size, metric-only guide</p>
+      <p className="tiny muted" style={{ textAlign: 'center', padding: '0 16px 90px', marginTop: -70 }} data-testid="build-stamp">Build {__BUILD__} · guided knit mode, single-size, metric-only</p>
       <button className="btn primary big fab" onClick={() => go('/new')} data-testid="new-project">
         <IconPlus /> NEW PROJECT
       </button>

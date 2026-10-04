@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { findSizeGroups } from '../model/size';
 import { guideCtxOf } from '../model/helpers';
-import { analyzeResolution, groupKey, guideInstruction, type ReviewValue } from '../model/guide';
+import { analyzeResolution, groupKey, groupsFor, guideInstruction, type ReviewValue } from '../model/guide';
 import type { Instruction, Pattern, Project } from '../model/types';
 import { setOverride } from '../store/store';
 import { Sheet } from '../ui/common';
@@ -19,7 +18,7 @@ export function useResolver(project: Project, pattern: Pattern) {
     let review = g.review.find((r) => r.key === key);
     if (!review) {
       const idx = Number(key.split('#')[1]);
-      const grp = findSizeGroups(ins.text, pattern.sizes.length)[idx];
+      const grp = groupsFor(pattern, ins)[idx];
       if (!grp) return;
       review = { key: groupKey(ins.id, idx), raw: grp.raw, values: grp.values, reason: 'You confirmed this value by hand earlier.' };
     }

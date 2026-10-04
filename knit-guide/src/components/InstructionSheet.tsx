@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { explain } from '../engine/explain';
-import { guideInstruction, listSizesFor, resolveGroup, groupKey } from '../model/guide';
+import { groupsFor, guideInstruction, listSizesFor, resolveGroup, groupKey } from '../model/guide';
 import { guideCtxOf, guideNotes } from '../model/helpers';
-import { findSizeGroups, toNumber } from '../model/size';
+import { toNumber } from '../model/size';
 import type { CounterKind, Instruction, Pattern, Project } from '../model/types';
 import { detectSuggestions, type Suggestion } from '../parser/detect';
 import { addCounter, addModification, addStitchCounter, knitFromHere, toggleComplete } from '../store/store';
@@ -26,7 +26,7 @@ export function suggestionsFor(ins: Instruction, pattern: Pattern): Suggestion[]
  */
 export function suggestionTarget(s: Suggestion, ins: Instruction, pattern: Pattern, project: Pick<Project, 'size' | 'sizeOverrides'>): number | undefined {
   if (!s.perSize) return toNumber(s.values[0]);
-  const groups = findSizeGroups(ins.text, pattern.sizes.length);
+  const groups = groupsFor(pattern, ins);
   const i = groups.findIndex((g) => s.evidence.includes(g.raw));
   if (i < 0) return undefined;
   const ov = project.sizeOverrides?.[groupKey(ins.id, i)];
@@ -107,7 +107,7 @@ export function InstructionSheet({ project, pattern, ins, onClose, initialView =
               </div>
             )}
             <div className="actions">
-              <button className="btn primary big wide" onClick={() => { knitFromHere(project.id, ins.id); toast('Knitting from here'); onClose(); }} data-testid="knit-from-here">
+              <button className="btn primary big wide" onClick={() => { knitFromHere(project.id, ins.id); toast('Knitting from here'); onClose(); go(`/p/${project.id}/knit`); }} data-testid="knit-from-here">
                 {isCurrent ? '✓ CURRENT · KNIT FROM HERE' : 'KNIT FROM HERE'}
               </button>
               <button className="btn" onClick={() => setView('note')} data-testid="act-note">ADD NOTE</button>

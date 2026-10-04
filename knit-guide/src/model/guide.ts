@@ -83,6 +83,11 @@ export function resolveGroup(
   return { value: v };
 }
 
+/** The size lists in an instruction (one shared definition, so override keys always line up). */
+export function groupsFor(pattern: Pattern, ins: Instruction): SizeGroup[] {
+  return findSizeGroups(ins.text, pattern.sizes.length, listSizesFor(pattern, ins).length);
+}
+
 export function guideInstruction(ins: Instruction, ctx: GuideCtx): Guided {
   const { pattern, size, overrides } = ctx;
   const empty: Guided = { hidden: true, parts: [], plain: '', review: [], resolved: 0, overridden: [], measurementFlags: [] };
@@ -114,7 +119,7 @@ export function guideInstruction(ins: Instruction, ctx: GuideCtx): Guided {
 
   // size lists
   const listSizes = listSizesFor(pattern, ins);
-  const groups = findSizeGroups(ins.text, pattern.sizes.length);
+  const groups = groupsFor(pattern, ins);
   const overridden: string[] = [];
   let out = '';
   let pos = 0;

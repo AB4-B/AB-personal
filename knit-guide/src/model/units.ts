@@ -8,11 +8,12 @@
 
 const FR: Record<string, number> = { '¼': 0.25, '½': 0.5, '¾': 0.75, '⅛': 0.125, '⅜': 0.375, '⅝': 0.625, '⅞': 0.875 };
 const FRAC = '[¼½¾⅛⅜⅝⅞]';
-const NUMF = String.raw`\d+(?:\.\d+)?${FRAC}?`;
+const NUMF = String.raw`(?:\d+(?:\.\d+)?${FRAC}?|${FRAC})`;
 const INCH = String.raw`(?:["”″]|\s?inch(?:es)?\b)`;
 const IMP = String.raw`${NUMF}\s?${INCH}`;
 const IMPSEQ = String.raw`${IMP}(?:\s*(?:[x×]|,|and|-|–|to)\s*${IMP})*`;
-const METRIC_ONE = String.raw`\d+(?:\.\d+)?\s?(?:cm|mm)\b`;
+const METRIC_NUM = String.raw`\d+(?:\.\d+)?${FRAC}?`;
+const METRIC_ONE = String.raw`${METRIC_NUM}\s?(?:cm|mm)\b`;
 
 export const US_NEEDLE_MM: Record<string, number> = {
   '0': 2, '1': 2.25, '2': 2.75, '3': 3.25, '4': 3.5, '5': 3.75, '6': 4, '7': 4.5, '8': 5, '9': 5.5,
@@ -20,9 +21,9 @@ export const US_NEEDLE_MM: Record<string, number> = {
 };
 
 export function parseNumF(s: string): number {
-  const m = s.match(new RegExp(`^(\\d+(?:\\.\\d+)?)(${FRAC})?$`));
-  if (!m) return NaN;
-  return Number(m[1]) + (m[2] ? FR[m[2]] : 0);
+  const m = s.trim().match(new RegExp(`^(\\d+(?:\\.\\d+)?)?(${FRAC})?$`));
+  if (!m || (!m[1] && !m[2])) return NaN;
+  return (m[1] ? Number(m[1]) : 0) + (m[2] ? FR[m[2]] : 0);
 }
 
 /** "4.0" -> "4", "30.5" -> "30.5" */
@@ -62,8 +63,8 @@ export function toMetric(input: string): MetricResult {
     new RegExp(String.raw`(${IMPSEQ})\s*\(\s*(${METRIC_ONE}(?:\s*[x×]\s*${METRIC_ONE})?)\s*\)`, 'gi'),
     (m, imp: string, metric: string) => {
       const toks = imp.match(new RegExp(NUMF, 'g')) ?? [];
-      const cms = metric.match(/\d+(?:\.\d+)?/g) ?? [];
-      if (toks.length === 1 && cms.length === 1 && disagrees(parseNumF(toks[0]), Number(cms[0]))) {
+      const cms = metric.match(new RegExp(METRIC_NUM, 'g')) ?? [];
+      if (toks.length === 1 && cms.length === 1 && disagrees(parseNumF(toks[0]), parseNumF(cms[0]))) {
         flags.push(`"${m.trim()}": metric and imperial values differ`);
       }
       return metric;
@@ -71,10 +72,10 @@ export function toMetric(input: string): MetricResult {
   );
   // 1c. metric followed by imperial companions: `110 cm = 44"`, `32 cm / 3", 6¼"`, `10 x 10 cm / 4" x 4"`
   t = t.replace(
-    new RegExp(String.raw`(\d+(?:\.\d+)?\s?(?:cm|mm))\s*[/=(]\s*(${IMPSEQ})\)?`, 'gi'),
+    new RegExp(String.raw`(${METRIC_NUM}\s?(?:cm|mm))\s*[/=(]\s*(${IMPSEQ})\)?`, 'gi'),
     (m, metric: string, imp: string) => {
       const toks = imp.match(new RegExp(NUMF, 'g')) ?? [];
-      const cm = Number(metric.match(/\d+(?:\.\d+)?/)![0]);
+      const cm = parseNumF(metric.match(new RegExp(METRIC_NUM))![0]);
       if (/cm/i.test(metric) && toks.length === 1 && !/[x×,]|and/.test(imp) && disagrees(parseNumF(toks[0]), cm)) {
         flags.push(`"${m.trim()}": metric and imperial values differ`);
       }

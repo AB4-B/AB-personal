@@ -19,6 +19,7 @@ const results = [];
 const shot = (n) => page.screenshot({ path: `${OUT}/${n}.png` });
 const assert = (c, m) => { if (!c) throw new Error(m); };
 const tid = (id) => page.getByTestId(id);
+const kfh = async () => { await tid('knit-from-here').click(); await page.waitForSelector('[data-testid=knit-screen]'); await tid('to-outline').click(); await page.waitForSelector('[data-testid=outline]'); };
 async function test(name, fn) {
   try { const d = await fn(); results.push({ name, pass: true, detail: d }); console.log('PASS', name, d ?? ''); }
   catch (e) { results.push({ name, pass: false, detail: String(e.message).split('\n')[0] }); console.log('FAIL', name, '\n   ', String(e.message).split('\n').slice(0, 4).join('\n    ')); shot(`FAIL-${name.slice(0, 14).replace(/\W+/g, '-')}`).catch(() => {}); }
@@ -181,9 +182,9 @@ await test('B3 start knitting, then change size: clear warning, explicit confirm
   const row = page.locator('[data-testid=instruction]', { has: page.locator('.body', { hasText: 'Provisional cast on' }) }).first();
   await row.scrollIntoViewIfNeeded();
   await row.getByTestId('plus').click();
-  await tid('knit-from-here').click();
+  await kfh();
   await page.waitForTimeout(300);
-  await page.goBack();
+  await page.evaluate(() => { location.hash = location.hash.replace(/\/(outline|knit).*/, ''); });
   await page.waitForSelector('[data-testid=open-instructions]');
   await page.locator('button[aria-label="Edit details"]').click();
   await tid('size-M').or(page.locator('.sheet .size-btn', { hasText: /^M$/ })).first().click();

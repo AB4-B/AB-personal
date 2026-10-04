@@ -237,6 +237,39 @@ export interface Project {
   trackers: Record<string, TrackerState>;
 
   progress: Progress;
+  /** how I like to knit (defaults: circular needles, Magic Loop for small circumferences) */
+  prefs?: KnitPrefs;
+  /** Knit mode runtime state (place in the guided steps, checkpoints, measured events, my interpretations) */
+  knit?: KnitState;
+}
+
+export interface KnitPrefs {
+  circular: boolean;
+  smallCircumference: 'magic-loop' | 'dpn';
+}
+
+export const DEFAULT_PREFS: KnitPrefs = { circular: true, smallCircumference: 'magic-loop' };
+
+export interface KnitState {
+  /** step indices ticked off, keyed by `${instructionId}` or `${trackerId}:r${row}` */
+  stepsDone: Record<string, number[]>;
+  /** stitch-count checkpoints (expected vs counted by me) */
+  checkpoints: Record<string, { expected: number; counted?: number; verifiedAt?: number }>;
+  /** measurement-triggered events (sleeve decreases, buttonholes, yoke end) */
+  measured: Record<string, MeasuredState>;
+  /** my own interpretation of an instruction the guide could not translate safely */
+  guidanceOverrides: Record<string, { steps: string[]; at: number }>;
+  /** measurements I recorded (cm), keyed by measurement key */
+  measurements: Record<string, { cm: number; at: number }>;
+}
+
+export interface MeasuredState {
+  /** events completed */
+  done: number;
+  /** I confirmed the measurement is reached: the next matching row/round must do the event */
+  due: boolean;
+  /** an event row was just completed (used for "knit the yarn over on the next wrong-side row") */
+  justDone?: boolean;
 }
 
 export interface ProjectSetup {
@@ -322,6 +355,8 @@ export interface Progress {
 /** Everything needed to show the CONTINUE KNITTING card, frozen at stop time. */
 export interface StopSnapshot {
   at: number;
+  /** frozen description for the "YOU STOPPED HERE" card */
+  state?: { headline: string[]; nextAction?: string; tracking: string[]; stitches?: number };
   sectionId?: string;
   instructionId?: string;
   noteId?: string;

@@ -3,7 +3,7 @@
  * Everything here is *suggestion* data. The designer's text is never changed, and
  * anything uncertain carries a review reason so the UI can show NEEDS REVIEW.
  */
-import { groupKey, listSizesFor } from '../model/guide';
+import { groupKey, groupsFor, listSizesFor } from '../model/guide';
 import { findSizeGroups, NUM_OR_GROUP_SRC, parseGroupValues, toNumber } from '../model/size';
 import type {
   Instruction,
@@ -125,7 +125,7 @@ const GROUP_STR = NUM_OR_GROUP_SRC;
 function listValues(ins: Instruction, captured: string, sizes: string[], sections: Section[]) {
   const { values: raw, perSize } = valuesOf(captured);
   if (!perSize) return { values: raw };
-  const groups = findSizeGroups(ins.text, sizes.length);
+  const groups = groupsFor({ sections, sizes } as never, ins);
   const i = groups.findIndex((g) => g.raw === captured.trim());
   const key = i >= 0 ? groupKey(ins.id, i) : undefined;
   const list = listSizesFor({ sections, sizes } as never, ins);
@@ -268,7 +268,7 @@ export function detectTrackers(
   const titleOf = (ins: Instruction) => sections.find((x) => x.id === ins.sectionId)?.title ?? '';
 
   sections.forEach((sec, si) => {
-    if (consumed.has(sec.id)) return;
+    if (consumed.has(sec.id) || sec.appliesTo) return;
     // "Read the next 2 sections before continuing" -> those sections belong to this guide
     const own = instructions.filter((i) => i.sectionId === sec.id);
     const rn = own.map((i) => i.text.match(/read\s+the\s+next\s+(\d+)\s+sections?/i)).find(Boolean);

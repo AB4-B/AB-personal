@@ -5,6 +5,7 @@ import { useRoute } from './ui/router';
 import { ChartViewer } from './screens/ChartViewer';
 import { Home } from './screens/Home';
 import { NewProject } from './screens/NewProject';
+import { Knit } from './screens/Knit';
 import { Outline } from './screens/Outline';
 import { PdfViewer } from './screens/PdfViewer';
 import { ProjectDetail } from './screens/ProjectDetail';
@@ -22,6 +23,7 @@ export function App() {
   if (path[0] === 'new') return <NewProject />;
   if (path[0] === 'p' && path[1]) {
     const id = path[1];
+    if (path[2] === 'knit') return <Knit projectId={id} />;
     if (path[2] === 'outline') return <Outline projectId={id} />;
     if (path[2] === 'pdf') return textSource ? <TextViewer projectId={id} /> : <PdfViewer projectId={id} />;
     if (path[2] === 'chart' && path[3]) return <ChartViewer projectId={id} imageId={path[3]} />;

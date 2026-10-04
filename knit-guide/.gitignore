@@ -1,6 +1,8 @@
 node_modules
 dist
-fixtures/*.pdf
+fixtures/*
+!fixtures/README.md
+!fixtures/synthetic-*
 docs/screenshots/
 e2e/out
 *.tsbuildinfo

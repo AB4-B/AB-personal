@@ -6,6 +6,7 @@
 import { needlesMm } from '../model/facts';
 import { computeAppliesTo } from '../model/guide';
 import { uid } from '../model/helpers';
+import { splitAtSentences } from '../model/text';
 import { findSizeGroups, parseSizeList } from '../model/size';
 import {
   SCHEMA_VERSION,
@@ -136,9 +137,7 @@ const ROW_LINE = /^(Rows?|Rounds?|Rnds?)\s*(\d+)\s*(?:\(([A-Za-z]{2})\))?\s*[:.]
 const LABEL_RE =
   /^(?<label>sizes?|finished\s+measurements?|measurements?|materials?|yarn|needles?|gauge|tension|knitting\s+gauge|buttons?|notions|skills(?:\s+required)?(?:\s*\/\s*techniques\s+used)?|techniques(?:\s+used)?|abbreviations?|difficulty(?:\s+level)?)(?:\s*:\s*(?<rest>.*)|\s*$)/i;
 
-export function splitAtSentences(text: string): string[] {
-  return text.replace(/([.!?])\s+(?=[A-Z*])/g, '$1\u0000').split('\u0000').map((s) => s.trim()).filter(Boolean);
-}
+export { splitAtSentences };
 
 function splitSentences(text: string): string[] {
   const parts = splitAtSentences(text);
@@ -229,6 +228,11 @@ export function groupHeadings(sections: Section[], instructions: Instruction[]) 
     const p = sections.find((x) => x.id === s.parentId);
     if (p && p.level === 2) s.parentId = p.parentId;
     if (s.level === 2 && !s.parentId) s.level = 1;
+  }
+  // text under an "EXPLANATIONS" heading explains terms; it is reference, not a step to knit
+  const isExplain = (sec?: Section): boolean => !!sec && (/^explanations?\b|explanations for/i.test(sec.title) || (sec.parentId ? isExplain(sections.find((x) => x.id === sec.parentId)) : false));
+  for (const ins of instructions) {
+    if (ins.kind === 'action' && isExplain(sections.find((x) => x.id === ins.sectionId))) ins.kind = 'info';
   }
   // an empty heading with no children is just noise
   for (let i = sections.length - 1; i >= 0; i--) {

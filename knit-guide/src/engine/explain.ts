@@ -100,8 +100,6 @@ export interface Explanation {
   notes: string[];
 }
 
-const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
-
 function splitTopLevel(s: string): string[] {
   const out: string[] = [];
   let depth = 0;
@@ -129,29 +127,32 @@ function stepsForToken(tokenIn: string): string[] | null {
   const op = m[1].toLowerCase();
   const n = m[2] ? Number(m[2]) : undefined;
   const label = m[3] ? ` (${m[3]})` : '';
+  const tail = label;
+  const sts = (k: number) => (k === 1 ? '1 stitch' : `${k} stitches`);
   switch (op) {
     case 'k':
-      return [`Knit ${plural(n ?? 1, 'stitch').replace('stitchs', 'stitches')}${label}.`];
+      return [`Knit the next ${sts(n ?? 1)} normally${tail}.`];
     case 'p':
-      return [`Purl ${plural(n ?? 1, 'stitch').replace('stitchs', 'stitches')}${label}.`];
+      return [`Purl the next ${sts(n ?? 1)}${tail}.`];
     case 'yo':
-      return ['Bring the yarn forward and make a yarn over.'];
+      return ['Make 1 yarn over (bring the yarn to the front, then over the right needle).'];
     case 'ssk':
       return [
-        'Slip the next two stitches knitwise, one at a time.',
-        'Insert the left needle into the front of those two slipped stitches and knit them together.',
+        'Slip the next stitch knitwise.',
+        'Slip the following stitch knitwise.',
+        'Knit those 2 slipped stitches together through the back (ssk).',
       ];
     case 'k2tog':
-      return ['Knit the next two stitches together as one.'];
+      return ['Knit the next 2 stitches together (k2tog).'];
     case 'k3tog':
-      return ['Knit the next three stitches together as one.'];
+      return ['Knit the next 3 stitches together (k3tog).'];
     case 'p2tog':
-      return ['Purl the next two stitches together as one.'];
+      return ['Purl the next 2 stitches together (p2tog).'];
     case 'sl':
     case 'sl1':
-      return [`Slip 1 stitch${label} (your pattern says knitwise or purlwise).`];
+      return [`Slip 1 stitch${tail} (your pattern says knitwise or purlwise).`];
     case 'pm':
-      return [`Place a stitch marker${label}.`];
+      return [`Place a marker on the needle${tail}.`];
     case 'sm':
       return ['Slip the marker from the left needle to the right needle.'];
     case 'knit':

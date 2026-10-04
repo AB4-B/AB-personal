@@ -5,6 +5,7 @@
 import { create } from 'zustand';
 import { clampTotal } from '../engine/stitch';
 import { findInstruction, isActionable, nextActionable, now, uid } from '../model/helpers';
+import { buildModel, bhKey, describeKnit, measuredKey, yokeRow } from '../guidance/flow';
 import type {
   Counter,
   CounterKind,
@@ -15,6 +16,8 @@ import type {
   Project,
   ProjectSetup,
   StopSnapshot,
+  KnitPrefs,
+  KnitState,
 } from '../model/types';
 import { createRepo, type Repo } from '../storage/db';
 
@@ -270,12 +273,20 @@ export const toggleComplete = (id: string, instructionId: string) =>
     else p.progress.completed.push(instructionId);
   });
 
+/** Next actionable instruction that is not just a schedule already handled by a combined row guide. */
+export function nextKnitStep(pat: Pattern, proj: Project, afterId: string) {
+  const covered = buildModel(pat, proj).covered;
+  let cur = nextActionable(pat, afterId, proj);
+  while (cur && covered.has(cur.id)) cur = nextActionable(pat, cur.id, proj);
+  return cur;
+}
+
 /** Mark current done and move "knit from here" to the next actionable instruction. */
 export function finishAndAdvance(id: string, instructionId: string) {
   const proj = useStore.getState().projects[id];
   const pat = proj && useStore.getState().patterns[proj.patternId];
   if (!pat) return;
-  const next = nextActionable(pat, instructionId, proj);
+  const next = nextKnitStep(pat, proj, instructionId);
   mutate(id, (p) => {
     if (!p.progress.completed.includes(instructionId)) p.progress.completed.push(instructionId);
     if (next) {
@@ -442,8 +453,10 @@ export function quickStop(id: string, note?: string): StopSnapshot | undefined {
   const proj = useStore.getState().projects[id];
   const pat = proj && useStore.getState().patterns[proj.patternId];
   if (!proj || !pat) return;
+  const d = describeKnit(pat, proj);
   const snap: StopSnapshot = {
     at: now(),
+    state: d ? { headline: d.headline, nextAction: d.nextAction, tracking: d.tracking, stitches: d.stitches } : undefined,
     sectionId: proj.progress.currentSectionId,
     instructionId: proj.progress.currentInstructionId,
     position: positionSummary(proj, pat),
@@ -494,4 +507,91 @@ export function installLifecycleFlush() {
   const flush = () => void flushWrites();
   document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && flush());
   window.addEventListener('pagehide', flush);
+}
+
+
+/* -------------------------------------------------------------- knit mode */
+
+const emptyKnit = (): KnitState => ({ stepsDone: {}, checkpoints: {}, measured: {}, guidanceOverrides: {}, measurements: {} });
+const knitOf = (p: Project): KnitState => (p.knit = { ...emptyKnit(), ...(p.knit ?? {}) });
+
+export const setPrefs = (id: string, patch: Partial<KnitPrefs>) =>
+  mutate(id, (p) => void (p.prefs = { circular: true, smallCircumference: 'magic-loop', ...(p.prefs ?? {}), ...patch }), false);
+
+export const tickStep = (id: string, key: string, index: number, on: boolean) =>
+  mutate(id, (p) => {
+    const k = knitOf(p);
+    const cur = new Set(k.stepsDone[key] ?? []);
+    if (on) cur.add(index);
+    else cur.delete(index);
+    k.stepsDone[key] = [...cur].sort((a, b) => a - b);
+  });
+
+export const saveCheckpoint = (id: string, key: string, expected: number, counted: number) =>
+  mutate(id, (p) => {
+    knitOf(p).checkpoints[key] = { expected, counted, verifiedAt: counted === expected ? now() : undefined };
+  });
+
+export const recordMeasurement = (id: string, key: string, cm: number | null) =>
+  mutate(id, (p) => {
+    const k = knitOf(p);
+    if (cm === null) delete k.measurements[key];
+    else k.measurements[key] = { cm, at: now() };
+  });
+
+export const saveGuidanceOverride = (id: string, insId: string, steps: string[] | null) =>
+  mutate(id, (p) => {
+    const k = knitOf(p);
+    if (!steps || steps.length === 0) delete k.guidanceOverrides[insId];
+    else k.guidanceOverrides[insId] = { steps, at: now() };
+  }, false);
+
+/** The knitter confirms the measurement for a buttonhole / measured event is reached. */
+export const setMeasuredDue = (id: string, key: string, due: boolean) =>
+  mutate(id, (p) => {
+    const k = knitOf(p);
+    const cur = k.measured[key] ?? { done: 0, due: false };
+    k.measured[key] = { ...cur, due };
+  });
+
+/** ROW DONE for the combined yoke row: advances the row and every counter derived from it. */
+export function yokeRowDone(id: string, insId: string) {
+  const proj = useStore.getState().projects[id];
+  const pat = proj && useStore.getState().patterns[proj.patternId];
+  const g = pat && buildModel(pat, proj).byId.get(insId);
+  if (!proj || !g || g.kind !== 'yoke' || !g.spec) return;
+  const r = yokeRow(g, proj);
+  if (!r) return;
+  const spec = g.spec;
+  mutate(id, (p) => {
+    const k = knitOf(p);
+    const t = (p.trackers[spec.id] ??= { row: 1, firstOverrides: {} });
+    const bk = bhKey(spec.id);
+    const bh = k.measured[bk] ?? { done: 0, due: false };
+    if (r.buttonhole) k.measured[bk] = { done: bh.done + 1, due: false, justDone: true };
+    else if (bh.justDone) k.measured[bk] = { ...bh, justDone: false };
+    t.row = r.row + 1;
+  });
+}
+
+export function yokeRowBack(id: string, insId: string) {
+  const proj = useStore.getState().projects[id];
+  const pat = proj && useStore.getState().patterns[proj.patternId];
+  const g = pat && buildModel(pat, proj).byId.get(insId);
+  if (!proj || !g || g.kind !== 'yoke' || !g.spec) return;
+  const spec = g.spec;
+  mutate(id, (p) => {
+    const t = (p.trackers[spec.id] ??= { row: 1, firstOverrides: {} });
+    t.row = Math.max(1, t.row - 1);
+  });
+}
+
+/** ROUND DONE for a measured event (e.g. a sleeve decrease round). */
+export function measuredEventDone(id: string, insId: string) {
+  mutate(id, (p) => {
+    const k = knitOf(p);
+    const mk = measuredKey(insId);
+    const cur = k.measured[mk] ?? { done: 0, due: false };
+    k.measured[mk] = { done: cur.done + 1, due: false };
+  });
 }

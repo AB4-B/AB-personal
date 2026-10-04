@@ -15,18 +15,20 @@ export interface SizeGroup {
 
 const FRAC = '[¼½¾⅛⅜⅝⅞]';
 /** one number as printed: 12, 3.5, 6¾ */
-export const TOK = String.raw`\d+(?:\.\d+)?${FRAC}?`;
+export const TOK = String.raw`(?:\d+(?:\.\d+)?${FRAC}?|${FRAC})`;
 const Q = String.raw`(?:\s?["”″])?`;
 const BRACKET_SRC = String.raw`${TOK}\s*[\[(]\s*${TOK}(?:\s*,\s*${TOK})+\s*[\])]`;
 /** DROPS style: 102-110-116-128-140-152 (spaces and inch marks tolerated) */
 const DASH_SRC = String.raw`${TOK}${Q}(?:\s?[-–]\s?${TOK}${Q}){2,}`;
+/** two-number lists ("2-1") are only size lists inside a section written for exactly two sizes */
+const DASH2_SRC = String.raw`${TOK}${Q}\s?[-–]\s?${TOK}${Q}`;
 /** a per-size number list, either `50 [50, 54, 58]` / `50 (50, 54)` or `50-50-54-58` */
 export const GROUP_SRC = String.raw`(?:${BRACKET_SRC}|${DASH_SRC})`;
 /** a single number or a size group */
 export const NUM_OR_GROUP_SRC = String.raw`(?:${GROUP_SRC}|${TOK})`;
 
 // no regex lookbehind (older iOS Safari): group 1 is the one character before the list
-const GROUP_RE = new RegExp(String.raw`(^|[^\d.\-–])(${GROUP_SRC})`, 'g');
+const GROUP_RE = new RegExp(String.raw`(^|[^\d.\-–])(${BRACKET_SRC}|${DASH_SRC}|${DASH2_SRC})`, 'g');
 
 /** "50 [50, 54]" / "11-11-13" -> ["50","50","54"] ; a plain number -> [number] */
 export function parseGroupValues(raw: string): { values: string[]; perSize: boolean } {
@@ -36,11 +38,11 @@ export function parseGroupValues(raw: string): { values: string[]; perSize: bool
     if (m) return { values: [m[1], ...m[2].split(',').map((x) => x.trim())], perSize: true };
   }
   const parts = t.split(/\s?[-–]\s?/).map((x) => x.replace(/["”″\s]/g, ''));
-  if (parts.length >= 3) return { values: parts, perSize: true };
+  if (parts.length >= 2 && parts.every((x) => /^\d+(?:\.\d+)?[¼½¾⅛⅜⅝⅞]?$/.test(x))) return { values: parts, perSize: true };
   return { values: [t], perSize: false };
 }
 
-export function findSizeGroups(text: string, sizeCount: number): SizeGroup[] {
+export function findSizeGroups(text: string, sizeCount: number, sectionListLen?: number): SizeGroup[] {
   const groups: SizeGroup[] = [];
   for (const m of text.matchAll(GROUP_RE)) {
     const lead = m[1].length;
@@ -49,13 +51,15 @@ export function findSizeGroups(text: string, sizeCount: number): SizeGroup[] {
     const isBracket = /[\[(]/.test(raw);
     // short dash lists (under 4 numbers) are never treated as size lists; 4-12 numbers that do not
     // match the number of sizes are kept and flagged, because guessing would be worse
-    if (!isBracket && values.length !== sizeCount && (values.length < 4 || values.length > 12)) continue;
+    const sectionList = sectionListLen !== undefined && sectionListLen !== sizeCount && values.length === sectionListLen;
+    if (!isBracket && values.length === 2 && !sectionList) continue;
+    if (!isBracket && values.length !== sizeCount && !sectionList && (values.length < 4 || values.length > 12)) continue;
     groups.push({
       start: m.index! + lead,
       end: m.index! + m[0].length,
       raw,
       values,
-      matchesSizes: sizeCount > 0 && values.length === sizeCount,
+      matchesSizes: sizeCount > 0 && (values.length === sizeCount || sectionList),
     });
   }
   return groups;

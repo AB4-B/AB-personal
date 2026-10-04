@@ -6,18 +6,19 @@ describe('explain', () => {
     const e = explain('Row 1: k2, yo, ssk', []);
     expect(e.steps).toEqual([
       'Row 1:',
-      'Knit 2 stitches.',
-      'Bring the yarn forward and make a yarn over.',
-      'Slip the next two stitches knitwise, one at a time.',
-      'Insert the left needle into the front of those two slipped stitches and knit them together.',
+      'Knit the next 2 stitches normally.',
+      'Make 1 yarn over (bring the yarn to the front, then over the right needle).',
+      'Slip the next stitch knitwise.',
+      'Slip the following stitch knitwise.',
+      'Knit those 2 slipped stitches together through the back (ssk).',
     ]);
     expect(e.terms.map((t) => t.key)).toEqual(expect.arrayContaining(['k', 'yo', 'ssk']));
   });
   it('handles labelled stitches and k2 tog spelling', () => {
     const e = explain('Set-up row (WS): k1, p1 (right front), pm, p22 sts (back)', []);
-    expect(e.steps).toContain('Purl 1 stitch (right front).');
-    expect(e.steps).toContain('Purl 22 stitches (back).');
-    expect(explain('k2 tog, yo', []).steps[0]).toMatch(/two stitches together/);
+    expect(e.steps).toContain('Purl the next 1 stitch (right front).');
+    expect(e.steps).toContain('Purl the next 22 stitches (back).');
+    expect(explain('k2 tog, yo', []).steps[0]).toMatch(/2 stitches together/);
   });
   it('does not pretend to translate prose', () => {
     const e = explain('Work the bodice as established to desired length.', []);

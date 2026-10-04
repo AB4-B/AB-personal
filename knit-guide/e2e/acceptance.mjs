@@ -34,6 +34,7 @@ async function test(name, fn) {
 }
 const assert = (c, m) => { if (!c) throw new Error(m); };
 const tid = (id) => page.getByTestId(id);
+const kfh = async () => { await tid('knit-from-here').click(); await page.waitForSelector('[data-testid=knit-screen]'); await tid('to-outline').click(); await page.waitForSelector('[data-testid=outline]'); };
 const stid = (id) => page.locator('.sheet').getByTestId(id);
 const gotoHome = async () => { await page.goto(BASE); await page.waitForSelector('.hero'); };
 
@@ -116,7 +117,7 @@ await test('T3 open the collapsible pattern outline', async () => {
 await test('T4 choose a yoke instruction → KNIT FROM HERE', async () => {
   await openInstruction(/Next row \(RS\)/);
   await shot('11-instruction-sheet');
-  await tid('knit-from-here').click();
+  await kfh();
   await page.waitForSelector('.sheet', { state: 'detached' });
   const cur = page.locator('[data-current]');
   assert((await cur.count()) === 1, 'no current instruction highlighted');
@@ -232,6 +233,8 @@ await test('T11 resume project: exact instruction, counters, stitch count, note,
   assert((await tid('detail-size').innerText()).startsWith('L'), 'size lost');
   assert(await page.getByText('Make this a long cardigan. Aim for mid-thigh.').first().isVisible(), 'modification lost');
   await tid('continue-card').click();
+  await page.waitForSelector('[data-testid=knit-screen]');
+  await tid('to-outline').click();
   await page.waitForSelector('[data-testid=live-panel]');
   const stitch = await tid('stitch-formula').innerText();
   assert(stitch === '16 × 10 + 4 = 164', `stitch counter after reload: ${stitch}`);
@@ -279,7 +282,7 @@ await test('T13 simultaneous raglan + V-neck + lace repeat, original text intact
   // make the generated row guide the current instruction
   await page.locator('[data-testid=instruction] .body', { hasText: 'row-by-row guide' }).first().scrollIntoViewIfNeeded();
   await openInstruction(/row-by-row guide/);
-  await tid('knit-from-here').click();
+  await kfh();
   await page.waitForSelector('[data-testid=tracker]');
   await page.locator('[data-testid=tracker] button', { hasText: 'Adjust' }).click();
   await page.locator('#jr').fill('17');
@@ -340,7 +343,7 @@ await test('Extra: explain, abbreviations, size resolution + Original, chart vie
   await page.locator('.sheet [aria-label=Close]').last().click();
   await tid('act-explain').click();
   const steps = await tid('explain-steps').innerText();
-  assert(/Knit 2 stitches\./.test(steps) && /yarn over/.test(steps) && /Slip the next two stitches knitwise/.test(steps), `steps: ${steps}`);
+  assert(/Knit the next 2 stitches normally\./.test(steps) && /yarn over/.test(steps) && /Slip the next stitch knitwise/.test(steps), `steps: ${steps}`);
   await shot('29-explain-lace');
   await closeSheet();
   // abbreviation tap in an instruction

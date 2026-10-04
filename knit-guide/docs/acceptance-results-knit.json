@@ -1,0 +1,96 @@
+{
+  "ran": "2026-10-04T12:03:00.927Z",
+  "results": [
+    {
+      "name": "K0 import the synthetic pattern, size L, start knitting",
+      "pass": true,
+      "detail": "RIGHT BAND (when the garment is worn) WORKING FLAT Size L"
+    },
+    {
+      "name": "T6 flat work on a circular needle: described as flat, \"do not join\", with a turn",
+      "pass": true,
+      "detail": "WORKING FLAT. Work back and forth. Turn your work at the end of each row. Do not join in the round. (You are using a circular needle, but you are still working flat.)"
+    },
+    {
+      "name": "T13 a stitch-count checkpoint opens the stitch counter with the target filled in; a confirmed count is verified",
+      "pass": true,
+      "detail": "verified at 7"
+    },
+    {
+      "name": "T17 measurement-based instruction does not pretend to know the measurement",
+      "pass": true,
+      "detail": "band lengths ask the knitter to measure; the guide never invents rows"
+    },
+    {
+      "name": "T8 V-neck + raglan on the same row become ONE ordered row with a jobs list",
+      "pass": true,
+      "detail": "THIS ROW HAS 2 JOBS V-neck increases Raglan increases"
+    },
+    {
+      "name": "T12 expected stitch count is correct for the row",
+      "pass": true,
+      "detail": "Stitches: 68 + 10 added = 78 expected after this row"
+    },
+    {
+      "name": "T9 completing the row updates BOTH counters",
+      "pass": true,
+      "detail": "after ROW DONE: V-neck increase: 1 of 9 | Raglan increase, all four seams: 1 of 4 | Raglan increase, body side: 0 of 14 | Raglan increase, sleeve side: 0 of 7 | Buttonhole: 0 of 4"
+    },
+    {
+      "name": "T11 right side / wrong side advances with an explicit turn",
+      "pass": true,
+      "detail": "YOKE Row 2 WRONG SIDE WORKING FLAT Size L 78 stitches now"
+    },
+    {
+      "name": "T10 a row with no increases says so explicitly",
+      "pass": true,
+      "detail": "No increases on this row."
+    },
+    {
+      "name": "T14 Quick Stop in the middle of a simultaneous row restores exactly after a reload",
+      "pass": true,
+      "detail": "ROW 5; next action \"Knit until 1 stitch remains before marker 1 (front…\""
+    },
+    {
+      "name": "T18 buttonhole state (due / done) is retained across a reload",
+      "pass": true,
+      "detail": "due, done and count survive reloads"
+    },
+    {
+      "name": "Walk: finish the yoke, sleeves (Magic Loop), body, ribs, assembly with no unreviewed gaps",
+      "pass": true,
+      "detail": "73 cards, buttonholes tracked, Magic Loop used"
+    },
+    {
+      "name": "T1/T2 only size-L values appear; no multi-size number lists anywhere in guided cards",
+      "pass": true,
+      "detail": "no multi-size sequences"
+    },
+    {
+      "name": "T4/T5 no imperial units and no US needle sizes in the guide",
+      "pass": true,
+      "detail": "metric only"
+    },
+    {
+      "name": "T3/T19 View Original keeps the untouched multi-size source",
+      "pass": true,
+      "detail": "original multi-size / imperial / US text unchanged"
+    },
+    {
+      "name": "T15 ambiguous size values show SIZE VALUE NEEDS REVIEW; T16 an ambiguous interpretation shows GUIDANCE NEEDS REVIEW",
+      "pass": true,
+      "detail": "both review states shown; interpretation saved"
+    },
+    {
+      "name": "DROPS 244-8 (local only), size L: the whole pattern can be walked in Knit mode; sizes/metric hold",
+      "pass": true,
+      "detail": "107 cards (106 iterations), 0 needing review"
+    },
+    {
+      "name": "T20 offline: the Knit screen still opens after the first load (PWA)",
+      "pass": true,
+      "detail": "app shell loads with the network off (full offline PDF check: e2e/acceptance.mjs)"
+    }
+  ],
+  "errors": []
+}

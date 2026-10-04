@@ -4,7 +4,8 @@ import { resumeInfo } from '../components/Summary';
 import { projectFacts } from '../model/facts';
 import { analyzeResolution } from '../model/guide';
 import { findInstruction, hasProgress, sourceLabel } from '../model/helpers';
-import { addModification, deleteModification, editModification, renameProject, setPhoto, setSize, setStatus, updateSetup, useStore } from '../store/store';
+import { prefsOf } from '../guidance/flow';
+import { setPrefs, addModification, deleteModification, editModification, renameProject, setPhoto, setSize, setStatus, updateSetup, useStore } from '../store/store';
 import type { Modification, Pattern, Project, ProjectSetup } from '../model/types';
 import { ConfirmButton, IconMore, IconPdf, PhotoInput, Sheet, ToastHost, TopBar, YarnIcon, useBlobUrl } from '../ui/common';
 import { go } from '../ui/router';
@@ -76,6 +77,18 @@ function EditSetup({ project, pattern, onClose }: { project: Project; pattern: P
           {([['not-started', 'Not started'], ['active', 'Active'], ['finished', 'Finished']] as const).map(([k, n]) => <button key={k} className={`chip ${status === k ? 'ok' : ''}`} onClick={() => setSt(k)}>{n}</button>)}
         </div>
       </div>
+      <div className="field">
+        <label>How I knit</label>
+        <label className="row" style={{ minHeight: 48 }}>
+          <input type="checkbox" style={{ width: 26, height: 26 }} defaultChecked={prefsOf(project).circular} onChange={(e) => setPrefs(project.id, { circular: e.target.checked })} data-testid="pref-circular" />
+          <span>Preferred needles: circular (also for flat work)</span>
+        </label>
+        <div className="chips" style={{ marginTop: 0 }}>
+          {([['magic-loop', 'Small circumference: Magic Loop'], ['dpn', 'Small circumference: DPNs']] as const).map(([k, n]) => (
+            <button key={k} className={`chip ${prefsOf(project).smallCircumference === k ? 'ok' : ''}`} data-testid={`pref-${k}`} onClick={() => setPrefs(project.id, { smallCircumference: k })}>{n}</button>
+          ))}
+        </div>
+      </div>
       {FIELDS.map(([k, label]) => (
         <div className="field" key={k}><label htmlFor={`f-${k}`}>{label}</label><input id={`f-${k}`} className="input" value={s[k]} onChange={(e) => setS({ ...s, [k]: e.target.value })} /></div>
       ))}
@@ -110,17 +123,26 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
       <TopBar title={project.name} onBack={() => go('/')} right={<button className="iconbtn" aria-label="Edit details" onClick={() => setEditing(true)}><IconMore /></button>} />
       <div className="page-pad stack" style={{ gap: 16 }}>
         {resume ? (
-          <button className="continue" onClick={() => go(`/p/${project.id}/outline?focus=1`)} data-testid="continue-card">
+          <button className="continue" onClick={() => go(`/p/${project.id}/knit`)} data-testid="continue-card">
             <span className="caps" style={{ color: '#e5d6ee' }}>Where you stopped</span>
             <span className="where" data-testid="resume-section">{resume.section}</span>
             <span>{resume.snippet}</span>
             {resume.position && <span className="where" data-testid="resume-position">{resume.position}</span>}
             <span style={{ opacity: .85 }}>Last worked:<br /><b data-testid="resume-when">{resume.when}</b></span>
+            {project.progress.lastStop?.state && (
+              <span className="quote" data-testid="stopped-here">
+                <b>YOU STOPPED HERE</b><br />
+                {project.progress.lastStop.state.headline.join(' · ')}
+                {project.progress.lastStop.state.stitches !== undefined && <><br />{project.progress.lastStop.state.stitches} stitches</>}
+                {project.progress.lastStop.state.nextAction && <><br />Next: {project.progress.lastStop.state.nextAction}</>}
+                {project.progress.lastStop.state.tracking.map((t) => <span key={t} style={{ display: 'block' }}>{t}</span>)}
+              </span>
+            )}
             {resume.note && <span className="quote" data-testid="resume-note">Last note: “{resume.note}”</span>}
             <span className="cta">CONTINUE KNITTING</span>
           </button>
         ) : (
-          <button className="btn primary big block" onClick={() => go(`/p/${project.id}/outline`)} data-testid="start-knitting">START KNITTING</button>
+          <button className="btn primary big block" onClick={() => go(`/p/${project.id}/knit`)} data-testid="start-knitting">START KNITTING</button>
         )}
 
         {photo ? <img className="hero-img" src={photo} alt={project.name} /> : <div className="placeholder-img"><YarnIcon size={72} /></div>}

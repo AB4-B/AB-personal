@@ -34,3 +34,11 @@ describe('metric guide', () => {
     expect(toMetric('Chest: 36 inches (90 cm)').flags).toHaveLength(0); // 91.4 vs 90 is rounding, not an error
   });
 });
+
+describe('fractions', () => {
+  it('keeps the designer metric when it has a fraction, and drops lone-fraction inches', () => {
+    expect(toMetric('approx. 8½ cm = 3¼" between each one').text).toBe('approx. 8½ cm between each one');
+    expect(toMetric('The first buttonhole is worked 1 cm = ⅜" after the last increase.').text).toBe('The first buttonhole is worked 1 cm after the last increase.');
+    expect(toMetric('every 2½ cm = 1" a total of 9 times').text).toBe('every 2½ cm a total of 9 times');
+  });
+});
