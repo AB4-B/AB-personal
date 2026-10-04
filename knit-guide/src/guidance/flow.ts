@@ -98,7 +98,8 @@ function compute(pattern: Pattern, project: Project): GuidanceModel {
   const tipItem = items.find((i) => /^(?:start|begin) \d+ stitches before the marker-?thread/i.test(i.text));
 
   // everything printed before the first cast-on (needles, notions, sizing notes) is background, not a step
-  const startAt = visible.findIndex((i) => i.kind === 'action' && /\bcast(?:ing)? on\b/i.test(guided.get(i.id) ?? ''));
+  // the first sentence that STARTS with a cast-on is where knitting begins (a rule such as "cast on 1 new st on the return row" is not)
+  const startAt = visible.findIndex((i) => i.kind === 'action' && /^(?:(?:using|with|on) [^.]*?,?\s+)?(?:provisional )?cast on \d|^cast on\b/i.test((guided.get(i.id) ?? '').trim()));
   const background = new Set(startAt > 0 ? visible.slice(0, startAt).map((i) => i.id) : []);
   const list: Guidance[] = [];
   const joined = new Set<string>();
@@ -141,6 +142,9 @@ function compute(pattern: Pattern, project: Project): GuidanceModel {
       for (const c of chain) joined.add(c.id);
     }
     if (ins.kind === 'info' || (ins.kind === 'stitch-pattern' && !repeats) || /overview/i.test(title) || /^(abbreviations?|glossary|credits?|popular patterns|tin can knits|about|copyright)/i.test(title) || background.has(ins.id)) {
+      // "Worked back and forth on circular needle" is background, but it tells how the next step is worked
+      const how = text.match(/^worked (back and forth|flat|in rows|in the round)\b/i);
+      if (how) ctx.construction = /round/i.test(how[1]) ? 'round' : 'flat';
       list.push({ ...base, kind: 'info' });
       continue;
     }

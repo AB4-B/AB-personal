@@ -131,3 +131,32 @@ describe.skipIf(!existsSync(FLAX))('Flax (local fixture only)', () => {
     }
   });
 });
+
+describe('the first step is the real cast-on', () => {
+  const text = `Test Jacket
+Designer: Test
+SIZE: S - M - L
+
+NEEDLES:
+3.5 mm circular needle.
+
+BUTTONHOLES:
+Make buttonholes on the right band. 1 buttonhole = bind off 4th st and cast on 1 new st on the return row.
+
+BODY PIECE:
+Worked back and forth on circular needle from mid front.
+Cast on 208- 228 -248 sts on circular needle size 3.5 mm with Cotton Viscose.
+Work 8 rows garter st – see above.
+`;
+  it('starts at the cast-on sentence, not at a rule that merely mentions casting on', () => {
+    const p = finalizePattern(parsePastedText(text, {}));
+    const m = buildModel(p, project(p, 'M'));
+    const real = m.list.filter((g) => g.kind === 'steps');
+    expect(real[0].tr!.steps.map((s) => s.text)).toEqual(['Cast on 228 stitches.']);
+    expect(real[0].tr!.needs.join(' ')).toMatch(/3\.5 mm circular needle/);
+    expect(real[0].tr!.needs.join(' ')).toMatch(/Cotton Viscose/);
+    expect(real[0].tr!.construction).toBe('flat');
+    expect(m.list.find((g) => /buttonholes on the right band/i.test(g.ins.text))!.kind).toBe('info');
+    expect(real[1].tr!.steps[0].text).toMatch(/Knit every stitch for 8 rows/);
+  });
+});

@@ -515,7 +515,7 @@ const RECOGNIZERS: Rec[] = [
   },
   {
     name: 'knit-rows',
-    re: /^(?:work|knit) (\d+) (rows?|rounds?)(?: in garter stitch| in stockinette stitch)?\.?$/i,
+    re: /^(?:work|knit) (\d+) (rows?|rounds?)(?: (?:in )?(?:garter|stockinette) stitch)?\.?$/i,
     run: (m, a) => {
       const k = Number(m[1]);
       const round = /round/i.test(m[2]);
@@ -729,17 +729,37 @@ function consumeRepeat(a: Acc, w: Work, unit: 'round' | 'row', times: number | u
 const GENERIC: Rec[] = [
   {
     name: 'cast-on-general',
-    re: /^(?:(?:using|with|on) (.+?),?\s+)?cast on (\d+)(?: sts| stitches)?(?: (?:using|with) (?:the )?(.+?))?(?:,\s*(.+))?$/i,
-    run: (m, a, s) => {
-      const k = Number(m[2]);
-      const tail = m[4];
-      const prov = /provisional/i.test(s);
-      if (m[1]) {
-        const nd = needleFrom(m[1]);
-        if (nd.mm) needleNeeds(a, m[1], false);
-        else step(a, `Pick up your ${m[1].replace(/^the /, '')}.`);
+    re: /^(?:(?:using|with|on) (.+?),?\s+)?(provisional )?cast on (\d+)(?: sts| stitches)?(?: \(([^)]*)\))?(?:[,\s]+(.*))?$/i,
+    run: (m, a) => {
+      const k = Number(m[3]);
+      const prov = !!m[2];
+      const note = m[4];
+      const rest = m[5] ?? '';
+      let tail = rest;
+      let method: string | undefined;
+      let needleText = m[1];
+      let yarn: string | undefined;
+      const first = rest.split(/,\s*/)[0] ?? '';
+      const mm = first.match(/^(?:using|with) (?:the )?(.+?(?: method| cast-on))$/i);
+      if (mm) {
+        method = mm[1];
+        tail = rest.slice(first.length).replace(/^,\s*/, '');
+      } else if (/^(?:on|onto) /i.test(first) || /needles?\b/i.test(first)) {
+        needleText = first.replace(/^(?:on|onto) /i, '');
+        tail = rest.slice(first.length).replace(/^,\s*/, '');
       }
-      step(a, prov ? `Cast on ${sts(k)} using a provisional cast-on.` : `Cast on ${sts(k)}${m[3] && !/^(?:the )?(?:needles?|yarn)$/.test(m[3]) ? ` using ${m[3]}` : ''}.`, { tech: prov ? ['provisional', 'cast'] : ['cast'] });
+      if (needleText) {
+        const ym = needleText.match(/\s+with\s+(.+)$/i);
+        if (ym) {
+          yarn = ym[1];
+          needleText = needleText.replace(/\s+with\s+.+$/i, '');
+        }
+        const nd = needleFrom(needleText);
+        if (nd.mm) needleNeeds(a, needleText, false);
+        else if (/needle/i.test(needleText)) step(a, `Pick up your ${needleText.replace(/^(?:the |a )/i, '')}.`);
+      }
+      if (yarn) a.needs.push(`Yarn: ${yarn}`);
+      step(a, prov ? `Cast on ${sts(k)} using a provisional cast-on.` : `Cast on ${sts(k)}${method ? ` using the ${method}` : ''}${note ? ` (${note})` : ''}.`, { tech: prov ? ['provisional', 'cast'] : ['cast'] });
       setStitches(a, k);
       a.next.lastCastOn = k;
       a.checkpoint = { expected: k, label: 'cast-on' };
@@ -754,6 +774,15 @@ const GENERIC: Rec[] = [
         }
       }
       a.why.push('This is the starting edge of the piece.');
+    },
+  },
+  {
+    name: 'worked-how',
+    re: /^worked (back and forth|flat|in the round|in rows|from the top down|from the bottom up)(?: on (?:a |the )?(?:circular |straight |double[- ]pointed )?needles?)?(?:,? (?:from|starting at|beginning at) (.+))?$/i,
+    run: (m, a, s) => {
+      if (/back and forth|flat|in rows/i.test(m[1])) flatNote(a);
+      else if (/round/i.test(m[1])) roundNote(a);
+      step(a, `${s.endsWith('.') ? s : `${s}.`}`, { note: true });
     },
   },
   {
@@ -947,7 +976,12 @@ function handleRest(a: Acc, rest: string) {
 
 function handleSentence(sentence: string, acc: Acc, w: Work) {
   const orig = sentence.trim();
-  const s = orig.replace(/\.$/, '').replace(/,? this is (\d+) (?:sts|stitches)$/i, ' [$1 sts]');
+  const s = orig
+    .replace(/\.$/, '')
+    .replace(/\s*[–-]\s*see (?:above|below)[^.]*$/i, '')
+    .replace(/\bgarter st\b/gi, 'garter stitch')
+    .replace(/\bstockinette st\b/gi, 'stockinette stitch')
+    .replace(/,? this is (\d+) (?:sts|stitches)$/i, ' [$1 sts]');
   if (/⟦|SIZE VALUE NEEDS REVIEW/.test(s)) {
     flush(acc, w);
     step(acc, '⚠ SIZE VALUE NEEDS REVIEW: choose your value first (see the instruction).', { review: true, original: s });
