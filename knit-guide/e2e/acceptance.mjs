@@ -216,7 +216,9 @@ await test('T10 close/reload the application', async () => {
 
 await test('T11 resume project: exact instruction, counters, stitch count, note, size, modification', async () => {
   await shot('19-home-resume');
-  await tid('resume-active').click();   // "resume active project" card on Home
+  await tid('project-card').first().locator('button').first().click();   // open the project from Home
+  await page.waitForSelector('[data-testid=continue-card]');
+  await tid('continue-card').click();
   await page.waitForSelector('[data-testid=knit-screen]');
   await tid('to-outline').click();
   await page.waitForSelector('[data-testid=outline]');

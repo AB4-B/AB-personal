@@ -1,10 +1,10 @@
 {
-  "ran": "2026-10-04T12:38:58.848Z",
+  "ran": "2026-10-04T12:44:57.949Z",
   "results": [
     {
       "name": "K0 import the synthetic pattern, size L, start knitting",
       "pass": true,
-      "detail": "Size L Needle 4.5 mm WORKING FLAT"
+      "detail": "Size L Working Flat (back and forth) Needle 4.5 mm"
     },
     {
       "name": "T6 flat work on a circular needle: described as flat, \"do not join\", with a turn",
@@ -24,7 +24,7 @@
     {
       "name": "T8 V-neck + raglan on the same row become ONE ordered row with a jobs list",
       "pass": true,
-      "detail": "THIS ROW HAS 2 JOBS V-neck increases Raglan increases"
+      "detail": "This row has 2 jobs: V-neck increases Raglan increases"
     },
     {
       "name": "T12 expected stitch count is correct for the row",
@@ -34,12 +34,12 @@
     {
       "name": "T9 completing the row updates BOTH counters",
       "pass": true,
-      "detail": "after ROW DONE: V-neck increase: 1 of 9 | Raglan increase, all four seams: 1 of 4 | Raglan increase, body side: 0 of 14 | Raglan increase, sleeve side: 0 of 7 | Buttonhole: 0 of 4"
+      "detail": "after ROW DONE: V-neck increase 1 of 9 | Raglan increase, all four seams 1 of 4 | Raglan increase, body side 0 of 14 | Raglan increase, sleeve side 0 of 7 | Buttonhole 0 of 4"
     },
     {
       "name": "T11 right side / wrong side advances with an explicit turn",
       "pass": true,
-      "detail": "TEST YOKE JACKET YOKE ROW 2 WRONG SIDE 16% of the pattern Size L Needle 4.5 mm WORKING FLAT 78 stitches now"
+      "detail": "TEST YOKE JACKET YOKE ROW 2 16% of the pattern Size L Working Flat (back and forth) Needle 4.5 mm Side Wrong side Stitches now 78"
     },
     {
       "name": "T10 a row with no increases says so explicitly",

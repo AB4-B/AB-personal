@@ -61,7 +61,7 @@ await test('T6 flat work on a circular needle: described as flat, "do not join",
   const detail = await tid('construction-detail').innerText();
   assert(/back and forth/i.test(detail) && /do not join/i.test(detail), `construction: ${detail}`);
   assert(/circular needle/i.test(await tid('you-need').innerText()), 'YOU NEED should name a circular needle');
-  assert(/WORKING FLAT/i.test(await tid('knit-context').innerText()), 'context strip');
+  assert(/flat/i.test(await tid('knit-context').innerText()), 'context panel');
   return detail;
 });
 
@@ -112,10 +112,10 @@ await test('T17 measurement-based instruction does not pretend to know the measu
 await test('T8 V-neck + raglan on the same row become ONE ordered row with a jobs list', async () => {
   await shot('82-yoke-row-1');
   const jobs = await tid('knit-jobs').innerText();
-  assert(/THIS ROW HAS 2 JOBS/.test(jobs) && /V-neck/.test(jobs) && /Raglan/.test(jobs), `jobs: ${jobs}`);
+  assert(/this row has 2 jobs/i.test(jobs) && /V-neck/.test(jobs) && /Raglan/.test(jobs), `jobs: ${jobs}`);
   const steps = await stepTexts();
   assert(/V-neck increase/.test(steps) && /marker 1/.test(steps) && /marker 4/.test(steps), `steps: ${steps}`);
-  assert(/RIGHT SIDE/.test(await tid('knit-side').innerText()), 'row 1 is a right-side row');
+  assert(/right side/i.test(await tid('knit-side').innerText()), 'row 1 is a right-side row');
   assert(/Turn your work/.test(steps), 'explicit turn');
   return jobs.replace(/\s+/g, ' ');
 });
@@ -133,20 +133,20 @@ await test('T12 expected stitch count is correct for the row', async () => {
 await test('T9 completing the row updates BOTH counters', async () => {
   const lines = async () => (await page.locator('[data-testid=track-line]').allInnerTexts()).map((x) => x.replace(/\s+/g, ' '));
   const a = await lines();
-  assert(a.some((l) => /V-neck increase: 1 of 9/.test(l)) && a.some((l) => /all four seams: 1 of 4/.test(l)), `before: ${a}`);
+  assert(a.some((l) => /V-neck increase:? 1 of 9/.test(l)) && a.some((l) => /all four seams:? 1 of 4/.test(l)), `before: ${a}`);
   await tid('row-done').click();
   await page.waitForTimeout(100);
   const b = await lines();
   // row 2 is a wrong-side row: counters stay at the totals reached so far, never roll back
-  assert(b.some((l) => /V-neck increase: 1 of 9/.test(l)) && b.some((l) => /all four seams: 1 of 4/.test(l)) && b.every((l) => !/this row/.test(l)), `after row 1: ${b}`);
+  assert(b.some((l) => /V-neck increase:? 1 of 9/.test(l)) && b.some((l) => /all four seams:? 1 of 4/.test(l)) && b.every((l) => !/this row/.test(l)), `after row 1: ${b}`);
   return `after ROW DONE: ${b.join(' | ')}`;
 });
 
 await test('T11 right side / wrong side advances with an explicit turn', async () => {
-  assert(/WRONG SIDE/.test(await tid('knit-side').innerText()), 'row 2 should be WRONG SIDE');
+  assert(/wrong side/i.test(await tid('knit-side').innerText()), 'row 2 should be WRONG SIDE');
   assert(/ROW 2/.test(await tid('knit-rowno').innerText()), 'row number');
-  const ctx = (await tid('knit-where').innerText()) + ' ' + (await tid('knit-context').innerText());
-  assert(/WRONG SIDE/.test(ctx) && /WORKING FLAT/.test(ctx) && /Size L/.test(ctx) && /stitches now/.test(ctx), `context: ${ctx}`);
+  const ctx = ((await tid('knit-where').innerText()) + ' ' + (await tid('knit-context').innerText())).replace(/\s+/g, ' ');
+  assert(/wrong side/i.test(ctx) && /flat/i.test(ctx) && /Size L/.test(ctx) && /stitches now/i.test(ctx), `context: ${ctx}`);
   return ctx.replace(/\s+/g, ' ');
 });
 
@@ -162,7 +162,7 @@ await test('T14 Quick Stop in the middle of a simultaneous row restores exactly 
   await tid('row-done').click(); // row 4
   await tid('row-done').click(); // row 5: V-neck + raglan again
   const jobs = await tid('knit-jobs').innerText();
-  assert(/2 JOBS/.test(jobs), `row 5 should have 2 jobs: ${jobs}`);
+  assert(/2 jobs/i.test(jobs), `row 5 should have 2 jobs: ${jobs}`);
   const row = (await tid('knit-rowno').innerText()).trim();
   await page.locator('[data-testid=knit-step] .kcheck').nth(0).click();
   await page.locator('[data-testid=knit-step] .kcheck').nth(1).click();
@@ -216,7 +216,7 @@ await test('T18 buttonhole state (due / done) is retained across a reload', asyn
   assert(/knit the buttonhole yarn over normally/.test(await stepTexts()), 'the WS row after a buttonhole must say to knit the yarn over normally');
   await page.reload();
   await page.waitForSelector('[data-testid=knit-card]');
-  assert(/Buttonhole: 1 of 4/.test(await tid('knit-tracking').innerText()), 'buttonhole count lost on reload');
+  assert(/Buttonhole:? 1 of 4/.test((await tid('knit-tracking').innerText()).replace(/\s+/g, ' ')), 'buttonhole count lost on reload');
   sawBh = true;
   return 'due, done and count survive reloads';
 });

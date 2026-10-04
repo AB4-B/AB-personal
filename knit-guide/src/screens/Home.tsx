@@ -45,27 +45,19 @@ export function Home() {
 
   const all = Object.values(projects).sort((a, b) => (b.lastWorkedAt ?? b.createdAt) - (a.lastWorkedAt ?? a.createdAt));
   const visible = all.filter((p) => !!p.archived === showArchived);
-  const resume = all.find((p) => p.status === 'active' && !p.archived && p.progress.currentInstructionId);
 
   return (
     <div className="screen">
       <div className="hero">
         <h1>Knit Guide</h1>
-        <p className="muted">Your patterns, your place, always saved.</p>
       </div>
 
-      {resume && !showArchived && (
-        <div style={{ padding: '10px 16px 0' }}>
-          <button className="continue" onClick={() => go(`/p/${resume.id}/knit`)} data-testid="resume-active">
-            <span className="caps" style={{ color: 'rgba(255,255,255,.8)' }}>Resume active project</span>
-            <span className="where">{resume.name}</span>
-            <span style={{ opacity: .85 }}>Last worked: {formatWhen(resume.lastWorkedAt)}</span>
-            <span className="cta">CONTINUE KNITTING</span>
-          </button>
-        </div>
-      )}
+      <div className="mp">
+        <h2>My Projects</h2>
+        <button className="btn primary newbtn" onClick={() => go('/new')} data-testid="new-project"><IconPlus /> New Project</button>
+      </div>
 
-      <div style={{ padding: '18px 20px 0' }} className="row">
+      <div style={{ padding: '14px 20px 0' }} className="row">
         <span className="caps grow">{visible.length} {showArchived ? 'archived' : visible.length === 1 ? 'project' : 'projects'}</span>
         <button className="btn ghost small" onClick={() => setShowArchived((v) => !v)}>{showArchived ? 'Show active' : 'Show archived'}</button>
       </div>
@@ -88,11 +80,12 @@ export function Home() {
                   <Thumb photoId={p.photoId} />
                   <div className="grow stack" style={{ gap: 6 }}>
                     <h3>{p.name}</h3>
-                    <div className="muted small-text">{pat?.title}{pat?.designer ? ` · ${pat.designer}` : ''}</div>
-                    {here ? <div className="where">{here.section}{here.position ? ` · ${here.position}` : ''}</div> : <div className="where muted">{STATUS[p.status]}</div>}
-                    <div className="progress" aria-label={`Progress ${Math.round(frac * 100)}%`}><i style={{ width: `${frac * 100}%` }} /></div>
-                    <div className="row"><span className="tiny muted grow">{Math.round(frac * 100)}% · {formatWhen(p.lastWorkedAt)}</span><span className="go">{p.status === 'finished' ? 'Finished' : here ? 'Continue' : 'Open'} →</span></div>
+                    <div className="muted small-text">{pat?.designer ? `${pat.title} · ${pat.designer}` : pat?.title}</div>
+                    <div className="row"><div className="progress grow" aria-label={`Progress ${Math.round(frac * 100)}%`}><i style={{ width: `${frac * 100}%` }} /></div><span className="pct">{Math.round(frac * 100)}%</span></div>
+                    {here ? <div className="where">{here.section}{here.position ? <><br />{here.position}</> : null}</div> : <div className="where muted">{STATUS[p.status]}</div>}
+                    <div className="tiny muted">{p.status === 'finished' ? 'Finished' : `Last worked ${formatWhen(p.lastWorkedAt)}`}</div>
                   </div>
+                  <span className="chev2" aria-hidden="true">›</span>
                 </button>
                 <button className="iconbtn" aria-label={`Options for ${p.name}`} onClick={() => setMenu(p)}><IconMore /></button>
               </div>
@@ -101,10 +94,8 @@ export function Home() {
         </div>
       )}
 
-      <p className="tiny muted" style={{ textAlign: 'center', padding: '0 16px 90px', marginTop: -70 }} data-testid="build-stamp">Build {__BUILD__} · guided knit mode · new look</p>
-      <button className="btn primary big fab" onClick={() => go('/new')} data-testid="new-project">
-        <IconPlus /> NEW PROJECT
-      </button>
+      {visible.length > 0 && <div className="tip small-text">Tap a project to continue knitting or to view the full pattern.</div>}
+      <p className="tiny muted" style={{ textAlign: 'center', padding: '16px 16px 40px' }} data-testid="build-stamp">Build {__BUILD__} · guided knit mode · new look</p>
       {menu && projects[menu.id] && <ProjectMenu project={projects[menu.id]} onClose={() => setMenu(undefined)} />}
       <ToastHost />
     </div>
