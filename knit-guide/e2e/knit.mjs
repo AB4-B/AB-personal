@@ -514,6 +514,32 @@ await test('BACKUP: automatic copy is taken, a backup file downloads, and both r
   return 'file + automatic copy restore';
 });
 
+await test('RE-READ: a not-started project made with an older reader is re-read automatically; text is repaired', async () => {
+  await createFromPaste(readFileSync('fixtures/synthetic-scarf.txt', 'utf8'), 'One size', 'Stale scarf');
+  const url = page.url();
+  const pid = url.split('/p/')[1].split('/')[0];
+  await page.evaluate(async (pid) => {
+    const db = await new Promise((r) => { const q = indexedDB.open('knit-guide'); q.onsuccess = () => r(q.result); });
+    const store = (m) => db.transaction('patterns', m).objectStore('patterns');
+    const proj = await new Promise((r) => { const g = db.transaction('projects').objectStore('projects').get(pid); g.onsuccess = () => r(g.result); });
+    const pat = await new Promise((r) => { const g = store('readonly').get(proj.patternId); g.onsuccess = () => r(g.result); });
+    delete pat.readerVersion;
+    pat.instructions[0].text = 'GARBLED TEXT from an old reader';
+    await new Promise((r) => { const w = store('readwrite').put(pat, pat.id); w.onsuccess = () => r(); });
+  }, pid);
+  await page.goto('about:blank'); await page.goto(url); await page.waitForSelector('[data-testid=open-instructions]');
+  await page.waitForSelector('[data-testid=reread-msg]', { timeout: 15000 });
+  assert(/re-read with the latest reader/.test(await tid('reread-msg').innerText()), await tid('reread-msg').innerText());
+  const texts = await page.evaluate(async (pid) => {
+    const db = await new Promise((r) => { const q = indexedDB.open('knit-guide'); q.onsuccess = () => r(q.result); });
+    const proj = await new Promise((r) => { const g = db.transaction('projects').objectStore('projects').get(pid); g.onsuccess = () => r(g.result); });
+    const p = await new Promise((r) => { const g = db.transaction('patterns').objectStore('patterns').get(proj.patternId); g.onsuccess = () => r(g.result); });
+    return [p.readerVersion, p.instructions.some((i) => /GARBLED/.test(i.text))];
+  }, pid);
+  assert(texts[0] >= 2 && !texts[1], `pattern: ${JSON.stringify(texts)}`);
+  return 'repaired';
+});
+
 /* ------------------- Flax (Tin Can Knits): 19 sizes, two columns, size subsets. Local fixture only. */
 const FLAX = 'fixtures/flax-worsted.pdf';
 if (existsSync(FLAX)) {

@@ -10,12 +10,16 @@
  */
 
 export const SCHEMA_VERSION = 1;
+/** Bump when the PDF reader / parser changes in a way that fixes how existing patterns are read. */
+export const READER_VERSION = 2;
 
 /* ------------------------------------------------------------------ pattern */
 
 export interface Pattern {
   id: string;
   schemaVersion: number;
+  /** which reader produced this pattern (older patterns can be re-read from the stored PDF) */
+  readerVersion?: number;
   createdAt: number;
   updatedAt: number;
   /** Key of the untouched original PDF in the file store. Never modified. */

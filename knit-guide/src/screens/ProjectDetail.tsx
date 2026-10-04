@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { NoteCard, NoteComposer } from '../components/Notes';
 import { resumeInfo } from '../components/Summary';
 import { projectFacts } from '../model/facts';
@@ -8,6 +8,7 @@ import { findInstruction, hasProgress, sourceLabel } from '../model/helpers';
 import { prefsOf } from '../guidance/flow';
 import { setPrefs, addModification, deleteModification, editModification, renameProject, setPhoto, setSize, setStatus, updateSetup, useStore } from '../store/store';
 import type { Modification, Pattern, Project, ProjectSetup } from '../model/types';
+import { isStale, isUntouched, rereadPattern } from '../pdf/reread';
 import { ConfirmButton, IconMore, IconPdf, PhotoInput, Sheet, ToastHost, TopBar, YarnIcon, useBlobUrl } from '../ui/common';
 import { go } from '../ui/router';
 
@@ -112,6 +113,23 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
   const [addingMod, setAddingMod] = useState(false);
   const [modText, setModText] = useState('');
   const photo = useBlobUrl(project?.photoId);
+  const [reading, setReading] = useState(false);
+  const [readMsg, setReadMsg] = useState('');
+  const reread = async (p: Project) => {
+    setReading(true);
+    setReadMsg('');
+    try {
+      setReadMsg((await rereadPattern(p)) ? '✓ Pattern re-read with the latest reader.' : '⚠ The stored PDF was not found, so nothing changed.');
+    } catch (e) {
+      setReadMsg(`⚠ Could not re-read: ${(e as Error).message}`);
+    }
+    setReading(false);
+  };
+  // a project created with an older reader and not started yet is re-read automatically
+  useEffect(() => {
+    if (project && pattern && isStale(pattern) && isUntouched(project)) void reread(project);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.id, pattern?.readerVersion]);
 
   if (!project || !pattern) return <div className="screen"><TopBar title="Project" onBack={() => go('/')} /><div className="empty">Project not found.</div></div>;
 
@@ -188,6 +206,9 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
           {gc.level === 'ok' && <div className="done-banner" data-testid="gauge-ok">✓ Swatch matches the pattern gauge</div>}
           {gc.level === 'none' && <p className="muted small-text" style={{ margin: 0 }} data-testid="gauge-none">{gc.lines[0]}</p>}
           <button className="btn soft" onClick={() => setEditing(true)}>Edit details</button>
+          {isStale(pattern) && !isUntouched(project) && !reading && <div className="warnbox review-box" data-testid="reread-offer"><b>This pattern was read with an older reader.</b><div>Re-reading can fix scrambled text and size questions. Your knitting progress is kept, but it may not line up if instructions move.</div></div>}
+          <ConfirmButton className="btn soft" label={reading ? 'Re-reading…' : 'Re-read pattern from the saved PDF'} confirmLabel="Tap again to re-read" onConfirm={() => void reread(project)} />
+          {readMsg && <div className="small-text" data-testid="reread-msg" role="status">{readMsg}</div>}
         </section>
 
         <section className="card stack">

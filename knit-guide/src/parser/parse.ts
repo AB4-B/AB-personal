@@ -10,6 +10,7 @@ import { splitAtSentences } from '../model/text';
 import { findSizeGroups, parseSizeList } from '../model/size';
 import {
   SCHEMA_VERSION,
+  READER_VERSION,
   type Abbreviation,
   type Gauge,
   type Instruction,
@@ -651,6 +652,7 @@ export function parsePattern(pages: RawPage[], opts: ParseOptions): Pattern {
   return {
     id: opts.id ?? uid(),
     schemaVersion: SCHEMA_VERSION,
+    readerVersion: READER_VERSION,
     createdAt: now,
     updatedAt: now,
     fileId: opts.fileId,
