@@ -1,10 +1,10 @@
 {
-  "ran": "2026-10-04T12:03:00.927Z",
+  "ran": "2026-10-04T12:38:58.848Z",
   "results": [
     {
       "name": "K0 import the synthetic pattern, size L, start knitting",
       "pass": true,
-      "detail": "RIGHT BAND (when the garment is worn) WORKING FLAT Size L"
+      "detail": "Size L Needle 4.5 mm WORKING FLAT"
     },
     {
       "name": "T6 flat work on a circular needle: described as flat, \"do not join\", with a turn",
@@ -39,7 +39,7 @@
     {
       "name": "T11 right side / wrong side advances with an explicit turn",
       "pass": true,
-      "detail": "YOKE Row 2 WRONG SIDE WORKING FLAT Size L 78 stitches now"
+      "detail": "TEST YOKE JACKET YOKE ROW 2 WRONG SIDE 16% of the pattern Size L Needle 4.5 mm WORKING FLAT 78 stitches now"
     },
     {
       "name": "T10 a row with no increases says so explicitly",

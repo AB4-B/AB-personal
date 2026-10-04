@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { InstructionSheet } from '../components/InstructionSheet';
 import { NoteCard, NoteComposer } from '../components/Notes';
 import { RichText, useAbbrSheet } from '../components/RichText';
@@ -21,6 +22,7 @@ import {
 } from '../store/store';
 import { IconPdf, IconStop, Sheet, ToastHost, TopBar, toast } from '../ui/common';
 import { go } from '../ui/router';
+import { progressFraction } from '../model/helpers';
 
 /* ------------------------------------------------------------- pieces */
 
@@ -179,11 +181,39 @@ function ReviewBox({ project, pattern, g, onNote }: { project: Project; pattern:
 
 /* --------------------------------------------------------------- cards */
 
+/** The big primary button lives in the fixed dock beside Quick Stop, so it is always one thumb away. */
+const SlotCtx = createContext<HTMLElement | null>(null);
+function Primary({ children }: { children: React.ReactNode }) {
+  const slot = useContext(SlotCtx);
+  return slot ? createPortal(children, slot) : null;
+}
+
 function ContextStrip({ items }: { items: (string | undefined | false)[] }) {
   return (
     <div className="kctx" data-testid="knit-context">
       {items.filter(Boolean).map((t, i) => <span key={i} className={`kc ${/SIDE/.test(String(t)) ? 'side' : ''}`}>{t}</span>)}
     </div>
+  );
+}
+
+/** 1. WHERE I AM: pattern, section, row, progress. */
+function Where({ pattern, project, title, row, side }: { pattern: Pattern; project: Project; title: string; row?: number; side?: 'RS' | 'WS' }) {
+  const frac = progressFraction(pattern, project);
+  return (
+    <header className="kwhere" data-testid="knit-where">
+      <div className="kpat">{pattern.title}</div>
+      <h2 className="ksec">{title.replace(/[:.]$/, '')}</h2>
+      {row !== undefined && (
+        <div className="krowline">
+          <span className="krow" data-testid="knit-rowno">ROW {row}</span>
+          {side && <span className={`ksidepill ${side}`} data-testid="knit-side">{sideLabel(side)}</span>}
+        </div>
+      )}
+      <div className="kprog" aria-label={`Pattern progress ${Math.round(frac * 100)}%`}>
+        <div className="progress"><i style={{ width: `${Math.max(2, frac * 100)}%` }} /></div>
+        <span className="tiny">{Math.round(frac * 100)}% of the pattern</span>
+      </div>
+    </header>
   );
 }
 
@@ -200,19 +230,13 @@ function YokeCard({ g, project, pattern, onTech }: { g: Guidance; project: Proje
   const cp = r.checkpoint;
   return (
     <>
-      <ContextStrip items={[g.title.replace(/[:.]$/, ''), `Row ${r.row}`, sideLabel(r.side), 'WORKING FLAT', `Size ${project.size}`, `${r.before} stitches now`]} />
-      <div className="kcard" data-testid="knit-card" data-kind="yoke">
-        <div className="row">
-          <div className="grow">
-            <div className="caps">THIS ROW</div>
-            <div className="krow" data-testid="knit-rowno">ROW {r.row}</div>
-          </div>
-          <span className={`sidebadge ${r.side}`} data-testid="knit-side">{sideLabel(r.side)}</span>
-        </div>
+      <Where pattern={pattern} project={project} title={g.title} row={r.row} side={r.side} />
+      <ContextStrip items={[`Size ${project.size}`, project.setup.needle && `Needle ${project.setup.needle}`, 'WORKING FLAT', `${r.before} stitches now`]} />
+      <div className="kcard" key={r.row} data-testid="knit-card" data-kind="yoke">
         {r.jobs.length > 0 ? (
           <div className="jobs" data-testid="knit-jobs">
-            <b>THIS ROW HAS {r.jobs.length} JOB{r.jobs.length === 1 ? '' : 'S'}</b>
-            <ol>{r.jobs.map((j) => <li key={j}>{j}</li>)}</ol>
+            <b className="jobs-h">THIS ROW HAS {r.jobs.length} JOB{r.jobs.length === 1 ? '' : 'S'}</b>
+            <ul>{r.jobs.map((j) => <li key={j}>{j}</li>)}</ul>
           </div>
         ) : (
           <div className="jobs plain" data-testid="knit-jobs">{r.side === 'RS' ? 'No increases on this row. Just knit it as set out below.' : 'No increases on this row.'}</div>
@@ -230,11 +254,6 @@ function YokeCard({ g, project, pattern, onTech }: { g: Guidance; project: Proje
         {r.buttonhole && <div className="done-banner" data-testid="bh-due">BUTTONHOLE DUE · BUTTONHOLE {r.buttonhole.n} OF {r.buttonhole.total}</div>}
         <span className="caps">DO THIS</span>
         <StepList steps={r.steps} keyId={key} project={project} onTech={onTech} />
-        <div className="track" data-testid="knit-tracking">
-          <span className="caps">TRACKING</span>
-          {r.tracking.map((t) => <div key={t.label} className={t.now ? 'now' : ''} data-testid="track-line">{t.label}: <b>{t.done} of {t.total}</b>{t.now ? ' (this row)' : ''}</div>)}
-          <div data-testid="stitch-math">Stitches: {r.before}{r.added ? ` + ${r.added} added` : ' (no increases)'} = <b data-testid="expected-stitches">{r.after}</b> expected after this row</div>
-        </div>
         {cp ? <Checkpoint project={project} cpKey={`${spec.id}:r${r.row}:cp`} expected={cp.expected} label={cp.label} /> : <div className="small-text muted" data-testid="expect-line">After this row you should have {r.after} stitches.</div>}
         {r.increasesFinished && plan.endCm !== undefined && (
           <>
@@ -243,15 +262,22 @@ function YokeCard({ g, project, pattern, onTech }: { g: Guidance; project: Proje
           </>
         )}
         <Why lines={r.why} />
+        <div className="track" data-testid="knit-tracking">
+          <span className="caps">TRACKING</span>
+          {r.tracking.map((t) => <div key={t.label} className={t.now ? 'now' : ''} data-testid="track-line">{t.label}: <b>{t.done} of {t.total}</b>{t.now ? ' (this row)' : ''}</div>)}
+          <div data-testid="stitch-math">Stitches: {r.before}{r.added ? ` + ${r.added} added` : ' (no increases)'} = <b data-testid="expected-stitches">{r.after}</b> expected after this row</div>
+        </div>
         {plan.review.length > 0 && <div className="warnbox review-box" data-testid="yoke-review"><b>⚠ GUIDANCE NEEDS REVIEW</b>{plan.review.map((x, i) => <div key={i}>{x}</div>)}</div>}
         <PatternSays text={sayTexts} pattern={pattern} />
         <details className="assume"><summary>Assumptions this guide makes</summary>{plan.assumptions.map((a) => <p key={a} className="small-text" style={{ margin: '4px 0' }}>{a}</p>)}</details>
-        <button className="btn small ghost" onClick={() => setAdjust(true)}>Adjust row / V-neck start</button>
+        <div className="row wrap">
+          <button className="btn small" disabled={r.row <= 1} aria-label="Previous row" data-testid="row-back" onClick={() => yokeRowBack(project.id, g.ins.id)}>← Back one row</button>
+          <button className="btn small ghost" onClick={() => setAdjust(true)}>Adjust row / V-neck start</button>
+        </div>
       </div>
-      <div className="row kbtns">
-        <button className="pad sm" style={{ flex: 1 }} disabled={r.row <= 1} aria-label="Previous row" onClick={() => yokeRowBack(project.id, g.ins.id)}>◀ BACK</button>
-        <button className="pad plus" style={{ flex: 2.4, minHeight: 76, fontSize: 24 }} data-testid="row-done" onClick={() => yokeRowDone(project.id, g.ins.id)}>ROW DONE ▶</button>
-      </div>
+      <Primary>
+        <button className="btn primary kprimary" data-testid="row-done" onClick={() => yokeRowDone(project.id, g.ins.id)}><span>ROW DONE <span aria-hidden="true">→</span></span></button>
+      </Primary>
       {adjust && (
         <Sheet title="Adjust" onClose={() => setAdjust(false)}>
           <div className="field"><label htmlFor="kj">Jump to row</label><input id="kj" className="input" inputMode="numeric" defaultValue={r.row} onBlur={(e) => { const n = Number(e.target.value); if (n >= 1) setTrackerRow(project.id, spec.id, n); }} /></div>
@@ -284,8 +310,9 @@ function StepsCard({ g, project, pattern, onTech, onNote }: { g: Guidance; proje
   const next = () => { const n = finishAndAdvance(project.id, g.ins.id); if (!n) toast('Pattern finished'); };
   return (
     <>
-      <ContextStrip items={[g.title.replace(/[:.]$/, ''), c?.title, `Size ${project.size}`, g.stitchesBefore !== undefined && `${g.stitchesBefore} stitches now`]} />
-      <div className="kcard" data-testid="knit-card" data-kind="steps">
+      <Where pattern={pattern} project={project} title={g.title} />
+      <ContextStrip items={[`Size ${project.size}`, project.setup.needle && `Needle ${project.setup.needle}`, c?.title, g.stitchesBefore !== undefined && `${g.stitchesBefore} stitches now`]} />
+      <div className="kcard" key={g.ins.id} data-testid="knit-card" data-kind="steps">
         {c && <div className="small-text muted" data-testid="construction-detail"><b>{c.title}.</b> {c.detail}</div>}
         {tr.needs.length > 0 && (
           <div className="need" data-testid="you-need"><span className="caps">YOU NEED</span><ul>{tr.needs.map((n, i) => <li key={i}>{n}</li>)}</ul></div>
@@ -303,10 +330,12 @@ function StepsCard({ g, project, pattern, onTech, onNote }: { g: Guidance; proje
         <PatternSays text={guidePlain(g.ins, gctx)} pattern={pattern} />
         {tr.assumptions.length > 0 && <details className="assume"><summary>Assumptions</summary>{tr.assumptions.map((a) => <p key={a} className="small-text" style={{ margin: '4px 0' }}>{a}</p>)}</details>}
       </div>
-      <button className="pad plus kbig" data-testid="step-done" onClick={next}>
-        {g.construction === 'round' ? 'ROUND DONE · NEXT ▶' : 'DONE · NEXT ▶'}
-        {done.length < steps.length && <small style={{ display: 'block', fontSize: 13, fontWeight: 600 }}>{steps.length - done.length} step{steps.length - done.length === 1 ? '' : 's'} not ticked</small>}
-      </button>
+      <Primary>
+        <button className="btn primary kprimary" data-testid="step-done" onClick={next}>
+          <span>{g.construction === 'round' ? 'ROUND DONE' : 'DONE'} <span aria-hidden="true">→</span></span>
+          {done.length < steps.length && <small>{steps.length - done.length} step{steps.length - done.length === 1 ? '' : 's'} not ticked</small>}
+        </button>
+      </Primary>
       {resolver.sheet}
     </>
   );
@@ -323,8 +352,9 @@ function MeasuredCard({ g, project, pattern, onTech }: { g: Guidance; project: P
   const after = mp.end ?? (g.stitchesBefore !== undefined ? g.stitchesBefore - mp.delta * mp.times : undefined);
   return (
     <>
-      <ContextStrip items={[g.title.replace(/[:.]$/, ''), 'WORKING IN THE ROUND', `Size ${project.size}`, g.stitchesBefore !== undefined && `${g.stitchesBefore - ms.done * mp.delta} stitches now`]} />
-      <div className="kcard" data-testid="knit-card" data-kind="measured">
+      <Where pattern={pattern} project={project} title={g.title} />
+      <ContextStrip items={[`Size ${project.size}`, project.setup.needle && `Needle ${project.setup.needle}`, 'WORKING IN THE ROUND', g.stitchesBefore !== undefined && `${g.stitchesBefore - ms.done * mp.delta} stitches now`]} />
+      <div className="kcard" key={`${g.ins.id}${ms.done}${ms.due}`} data-testid="knit-card" data-kind="measured">
         <div className="track" data-testid="knit-tracking">
           <span className="caps">TRACKING</span>
           <div data-testid="track-line">Decrease rounds done: <b>{ms.done} of {mp.times}</b></div>
@@ -352,9 +382,9 @@ function MeasuredCard({ g, project, pattern, onTech }: { g: Guidance; project: P
         <PatternSays text={guidePlain(g.ins, gctx)} pattern={pattern} />
       </div>
       {finished ? (
-        <button className="pad plus kbig" data-testid="step-done" onClick={() => { const n = finishAndAdvance(project.id, g.ins.id); if (!n) toast('Pattern finished'); }}>DONE · NEXT ▶</button>
+        <Primary><button className="btn primary kprimary" data-testid="step-done" onClick={() => { const n = finishAndAdvance(project.id, g.ins.id); if (!n) toast('Pattern finished'); }}><span>DONE <span aria-hidden="true">→</span></span></button></Primary>
       ) : ms.due ? (
-        <button className="pad plus kbig" data-testid="round-done" onClick={() => measuredEventDone(project.id, g.ins.id)}>ROUND DONE ▶</button>
+        <Primary><button className="btn primary kprimary" data-testid="round-done" onClick={() => measuredEventDone(project.id, g.ins.id)}><span>ROUND DONE <span aria-hidden="true">→</span></span></button></Primary>
       ) : null}
     </>
   );
@@ -371,6 +401,7 @@ export function Knit({ projectId }: { projectId: string }) {
   const [notes, setNotes] = useState(false);
   const [stop, setStop] = useState(false);
   const [stopNote, setStopNote] = useState('');
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
   const modelNow = project && pattern ? buildModel(pattern, project) : undefined;
   const curNow = modelNow && project ? resolveCurrent(modelNow, project.progress.currentInstructionId ?? pattern?.instructions[0]?.id) : undefined;
   const curId = curNow?.ins.id;
@@ -389,6 +420,7 @@ export function Knit({ projectId }: { projectId: string }) {
   const T = tech ? TECHNIQUES[tech] : undefined;
 
   return (
+    <SlotCtx.Provider value={slot}>
     <div className="screen knit">
       <TopBar
         title="Knit"
@@ -400,7 +432,7 @@ export function Knit({ projectId }: { projectId: string }) {
           </>
         }
       />
-      <div className="page-pad stack" style={{ gap: 12, paddingBottom: 150 }} data-testid="knit-screen">
+      <div className="page-pad stack kpage" data-testid="knit-screen">
         {facts.flags.length > 0 && (
           <button className="warnbox review-box" style={{ textAlign: 'left', font: 'inherit' }} data-testid="measurement-review-banner" onClick={() => go(`/p/${project.id}/outline`)}>
             <b>⚠ MEASUREMENT NEEDS REVIEW</b> Two measurements disagree. Tap to choose in Project Data.
@@ -414,7 +446,8 @@ export function Knit({ projectId }: { projectId: string }) {
           <MeasuredCard g={g} project={project} pattern={pattern} onTech={setTech} />
         ) : g.kind === 'legacy' && g.spec ? (
           <>
-            <ContextStrip items={[g.title.replace(/[:.]$/, ''), constructionText(g.construction, prefsOf(project))?.title, `Size ${project.size}`]} />
+            <Where pattern={pattern} project={project} title={g.title} />
+            <ContextStrip items={[`Size ${project.size}`, project.setup.needle && `Needle ${project.setup.needle}`, constructionText(g.construction, prefsOf(project))?.title]} />
             <TrackerCard project={project} pattern={pattern} spec={g.spec} onViewOriginal={() => setOrig(true)} />
           </>
         ) : g.tr ? (
@@ -430,10 +463,11 @@ export function Knit({ projectId }: { projectId: string }) {
         )}
       </div>
 
-      <div className="dock">
+      <div className="dock kdock">
         <button className="btn stop" data-testid="quick-stop" onClick={() => { quickStop(project.id); setStopNote(''); setStop(true); }}>
           <IconStop /> QUICK STOP
         </button>
+        <div className="kslot" ref={setSlot} />
       </div>
 
       {T && (
@@ -464,6 +498,7 @@ export function Knit({ projectId }: { projectId: string }) {
       )}
       <ToastHost />
     </div>
+    </SlotCtx.Provider>
   );
 }
 

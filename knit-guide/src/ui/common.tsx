@@ -153,8 +153,8 @@ export function PhotoInput({ onPick, children, className = 'btn soft' }: { onPic
 
 export function YarnIcon({ size = 56 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 64 64" fill="none" stroke="#8a6f5a" strokeWidth="3" strokeLinecap="round" aria-hidden="true">
-      <circle cx="30" cy="32" r="20" fill="#f6dfd6" />
+    <svg width={size} height={size} viewBox="0 0 64 64" fill="none" stroke="var(--text-2)" strokeWidth="3" strokeLinecap="round" aria-hidden="true">
+      <circle cx="30" cy="32" r="20" fill="var(--primary-light)" />
       <path d="M12 26c14 4 28 0 36-8M11 36c16 5 30 1 39-8M14 46c14 3 26-1 33-8M24 14c-4 12-3 26 4 38M36 13c-4 12-3 26 3 38" />
       <path d="M48 44c6 2 10 6 12 12" />
     </svg>

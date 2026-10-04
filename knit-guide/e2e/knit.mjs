@@ -145,7 +145,7 @@ await test('T9 completing the row updates BOTH counters', async () => {
 await test('T11 right side / wrong side advances with an explicit turn', async () => {
   assert(/WRONG SIDE/.test(await tid('knit-side').innerText()), 'row 2 should be WRONG SIDE');
   assert(/ROW 2/.test(await tid('knit-rowno').innerText()), 'row number');
-  const ctx = await tid('knit-context').innerText();
+  const ctx = (await tid('knit-where').innerText()) + ' ' + (await tid('knit-context').innerText());
   assert(/WRONG SIDE/.test(ctx) && /WORKING FLAT/.test(ctx) && /Size L/.test(ctx) && /stitches now/.test(ctx), `context: ${ctx}`);
   return ctx.replace(/\s+/g, ' ');
 });

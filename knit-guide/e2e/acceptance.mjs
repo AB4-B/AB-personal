@@ -217,6 +217,8 @@ await test('T10 close/reload the application', async () => {
 await test('T11 resume project: exact instruction, counters, stitch count, note, size, modification', async () => {
   await shot('19-home-resume');
   await tid('resume-active').click();   // "resume active project" card on Home
+  await page.waitForSelector('[data-testid=knit-screen]');
+  await tid('to-outline').click();
   await page.waitForSelector('[data-testid=outline]');
   await page.waitForFunction(() => document.querySelector('[data-current]'));
   const afterId = await page.evaluate(() => document.querySelector('[data-current]')?.id);

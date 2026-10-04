@@ -124,7 +124,7 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
       <div className="page-pad stack" style={{ gap: 16 }}>
         {resume ? (
           <button className="continue" onClick={() => go(`/p/${project.id}/knit`)} data-testid="continue-card">
-            <span className="caps" style={{ color: '#e5d6ee' }}>Where you stopped</span>
+            <span className="caps" style={{ color: 'rgba(255,255,255,.8)' }}>Where you stopped</span>
             <span className="where" data-testid="resume-section">{resume.section}</span>
             <span>{resume.snippet}</span>
             {resume.position && <span className="where" data-testid="resume-position">{resume.position}</span>}
