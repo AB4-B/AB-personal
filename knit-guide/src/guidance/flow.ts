@@ -37,6 +37,10 @@ export interface GuidanceModel {
 
 const cache = new WeakMap<Pattern, Map<string, GuidanceModel>>();
 
+const ROUND_START = /^(?:(?:decrease |increase |plain |short )?(?:rows?|rounds?)(?: \d+)?(?: ?\([^)]*\))?\s*:|work \d+ (?:rows?|rounds?) (?:even|in pattern|plain)|next row)/i;
+const ROUNDISH = /^(?:(?:decrease |increase |plain |short )?(?:rows?|rounds?)(?: \d+)?(?: ?\([^)]*\))?\s*:|work \d+ (?:rows?|rounds?) (?:even|in pattern|plain)|work these \d+ |work (?:short )?(?:rows?|rounds?) \d+\s*[-–]\s*\d+ |repeat (?:these|rows?|rounds?) |\[\d+[^\]]*\])/i;
+const REPEAT_STMT = /(?:a total of \d+|(?:work|repeat) (?:these \d+ |(?:short )?(?:rows?|rounds?) \d+\s*[-–]\s*\d+ )(?:rows?|rounds?)? ?until (?:the )?[a-z ]+ measures)/i;
+
 export const prefsOf = (p: Pick<Project, 'prefs'>): KnitPrefs => ({ ...DEFAULT_PREFS, ...(p.prefs ?? {}) });
 
 export function buildModel(pattern: Pattern, project: Project): GuidanceModel {
@@ -97,6 +101,7 @@ function compute(pattern: Pattern, project: Project): GuidanceModel {
   const startAt = visible.findIndex((i) => i.kind === 'action' && /\bcast(?:ing)? on\b/i.test(guided.get(i.id) ?? ''));
   const background = new Set(startAt > 0 ? visible.slice(0, startAt).map((i) => i.id) : []);
   const list: Guidance[] = [];
+  const joined = new Set<string>();
   const ctx: TCtx = { prefs, sectionTitle: '' };
   for (const ins of visible) {
     const title = titleOf(ins);
@@ -116,15 +121,29 @@ function compute(pattern: Pattern, project: Project): GuidanceModel {
       }
       continue;
     }
-    if (covered.has(ins.id)) {
+    if (covered.has(ins.id) || joined.has(ins.id)) {
       list.push({ ...base, kind: 'covered' });
+      if (joined.has(ins.id)) covered.add(ins.id);
       continue;
     }
-    if (ins.kind === 'info' || ins.kind === 'stitch-pattern' || /overview/i.test(title) || background.has(ins.id)) {
+    // Rounds that are repeated ("Round 1 … Round 2 … work rounds 1-2 a total of 7 times", "repeat rows 1-2 until
+    // the scarf measures 160 cm") are worked together, even when the designer's paragraphs were split apart.
+    const here = visible.indexOf(ins);
+    let text = guided.get(ins.id) ?? '';
+    const chain: Instruction[] = [];
+    if (ins.kind === 'stitch-pattern' || ROUND_START.test(text)) {
+      for (let k = here + 1; k < visible.length && visible[k].sectionId === ins.sectionId && ROUNDISH.test(guided.get(visible[k].id) ?? ''); k++) chain.push(visible[k]);
+    }
+    const chainText = [text, ...chain.map((c) => guided.get(c.id) ?? '')].join(' ');
+    const repeats = REPEAT_STMT.test(chainText);
+    if (repeats) {
+      text = chainText;
+      for (const c of chain) joined.add(c.id);
+    }
+    if (ins.kind === 'info' || (ins.kind === 'stitch-pattern' && !repeats) || /overview/i.test(title) || /^(abbreviations?|glossary|credits?|popular patterns|tin can knits|about|copyright)/i.test(title) || background.has(ins.id)) {
       list.push({ ...base, kind: 'info' });
       continue;
     }
-    const text = guided.get(ins.id) ?? '';
     const mp = measuredPlans.find((p) => p.anchorId === ins.id);
     if (mp) {
       ctx.construction = 'round';
@@ -172,8 +191,21 @@ export function yokeRow(g: Guidance, project: Project): PlannedRow | undefined {
 
 export const sideLabel = (s?: 'RS' | 'WS') => (s === 'RS' ? 'RIGHT SIDE' : s === 'WS' ? 'WRONG SIDE' : '');
 
+export const phasePos = (project: Project, insId: string) => project.knit?.phase?.[insId] ?? { part: 0, rep: 0, idx: 0 };
+
+/** The steps on screen for a card that is made of parts, and where in them the knitter is. */
+export function currentPart(g: Guidance, project: Project) {
+  const parts = g.tr?.parts;
+  if (!parts?.length) return undefined;
+  const pos = phasePos(project, g.ins.id);
+  const part = parts[Math.min(pos.part, parts.length - 1)];
+  return { parts, pos, part, last: pos.part >= parts.length - 1 };
+}
+
 /** Key under which the ticked steps of the current card are saved. */
 export function stepsKeyFor(g: Guidance, project: Project): string {
+  const cp = currentPart(g, project);
+  if (cp) return cp.part.kind === 'repeat' ? `${g.ins.id}:p${cp.pos.part}:r${cp.pos.rep}:i${cp.pos.idx}` : `${g.ins.id}:p${cp.pos.part}`;
   if (g.kind === 'yoke' && g.spec) return rowKey(g.spec.id, project.trackers[g.spec.id]?.row ?? 1);
   if (g.kind === 'measured') return `${g.ins.id}:e${project.knit?.measured?.[measuredKey(g.ins.id)]?.done ?? 0}`;
   return g.ins.id;
@@ -212,7 +244,13 @@ export function describeKnit(pattern: Pattern, project: Project): { headline: st
   } else {
     const c = constructionText(g.construction, prefs);
     if (c) headline.push(c.title.charAt(0) + c.title.slice(1).toLowerCase());
-    const steps = g.override?.map((t) => ({ text: t, tech: [] as string[] })) ?? g.tr?.steps ?? g.eventSteps ?? [];
+    const cp = currentPart(g, project);
+    if (cp?.part.kind === 'repeat') {
+      const b = cp.part.block;
+      headline.push(`${b.unit === 'row' ? 'Row' : 'Round'} ${cp.pos.idx + 1} of ${b.rounds.length}`);
+      tracking.push(b.times !== undefined ? `Repeat ${cp.pos.rep + 1} of ${b.times}` : `Repeat ${cp.pos.rep + 1}`);
+    }
+    const steps = g.override?.map((t) => ({ text: t, tech: [] as string[] })) ?? (cp ? (cp.part.kind === 'repeat' ? cp.part.block.rounds[cp.pos.idx]?.steps : cp.part.steps) : g.tr?.steps) ?? g.eventSteps ?? [];
     next = firstOpen(steps as TStep[]);
     if (g.kind === 'measured' && g.measured) {
       const ms = project.knit?.measured?.[measuredKey(g.ins.id)] ?? { done: 0, due: false };

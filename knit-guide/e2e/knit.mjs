@@ -365,6 +365,95 @@ if (existsSync(DROPS)) {
   });
 }
 
+/* ------------- one vocabulary, many projects: scarf, blanket, hat, raglan (synthetic, committed) */
+const walkPat = async (file, size, name, hooks = {}) => {
+  await createFromPaste(readFileSync(`fixtures/synthetic-${file}.txt`, 'utf8'), size, name);
+  await tid('start-knitting').click();
+  await page.waitForSelector('[data-testid=knit-card]');
+  const seen = [];
+  let clicks = 0;
+  for (let i = 0; i < 400; i++) {
+    if ((await tid('knit-card').count()) === 0) break;
+    const t = await cardText();
+    if (seen[seen.length - 1] !== t) seen.push(t);
+    if (hooks.before) await hooks.before(i, t);
+    if (await tid('repeat-length-reached').count() && (await tid('rep-count').innerText()).trim() >= (hooks.minRepeats ?? 3)) { await tid('repeat-length-reached').click(); }
+    else {
+      const k = await kind();
+      if (k === 'yoke' || k === 'measured' || k === 'legacy') break;
+      const before = t;
+      await tid('step-done').click();
+      clicks++;
+      await page.waitForTimeout(40);
+      if ((await cardText()) === before && /Weave in|Pull the tail|Bind off/.test(before) && i > 5) break;
+    }
+  }
+  return { seen, clicks };
+};
+
+await test('GENERAL scarf: repeated ribbing rows are counted and end when the length is reached', async () => {
+  const { seen } = await walkPat('scarf', 'One size', 'Scarf');
+  const all = seen.join('\n');
+  assert(!/GUIDANCE NEEDS REVIEW/.test(all), 'no review cards expected for the scarf');
+  assert(/Repeat 3/.test(all.replace(/\s+/g, ' ')) || /3\s*Round|Repeat\s*3/.test(all.replace(/\s+/g, ' ')), 'repeat counter should count up');
+  assert(/MEASUREMENT CHECK/.test(all) && /160 cm/.test(all), 'measurement check for 160 cm');
+  assert(/Bind off all stitches in pattern/.test(all), 'moved on to the bind-off after "length reached"');
+  return `${seen.length} cards`;
+});
+
+await test('GENERAL blanket: one size, rows 1-2 repeated until 85 cm, finishing steps', async () => {
+  const { seen } = await walkPat('blanket', 'One size', 'Blanket');
+  const all = seen.join('\n');
+  assert(!/GUIDANCE NEEDS REVIEW/.test(all), 'no review cards expected for the blanket');
+  assert(/85 cm/.test(all) && /Block the finished piece/.test(all), '85 cm and blocking');
+  return `${seen.length} cards`;
+});
+
+await test('GENERAL hat: join in the round, 8 repeats of 2 rounds; Quick Stop mid-repeat survives a reload', async () => {
+  let stopped = false;
+  const { seen } = await walkPat('hat', 'Adult S', 'Hat', {
+    before: async () => {
+      if (stopped) return;
+      if (!(await tid('rep-count').count())) return;
+      // go three rounds into the repeats: repeat 2 of 8, round 1 of 2
+      for (let k = 0; k < 3; k++) { await tid('step-done').click(); await page.waitForTimeout(80); }
+      assert(/2 of 8/.test(await tid('rep-count').innerText()), `repeat counter: ${await tid('rep-count').innerText()}`);
+      assert(/2 of 2/.test(await tid('rep-round').innerText()) || /1 of 2/.test(await tid('rep-round').innerText()), 'round counter');
+      const where = `${await tid('rep-count').innerText()}|${await tid('rep-round').innerText()}`;
+      await tid('quick-stop').click(); await page.waitForSelector('[data-testid=stop-saved]');
+      assert(/Repeat 2 of 8/.test(await tid('stopped-here').innerText()), 'Quick Stop card names the repeat');
+      await tid('stop-done').click(); await page.waitForTimeout(300);
+      await page.reload(); await page.waitForSelector('[data-testid=knit-card]');
+      assert(`${await tid('rep-count').innerText()}|${await tid('rep-round').innerText()}` === where, 'repeat position lost on reload');
+      stopped = true;
+    },
+  });
+  const all = seen.join('\n');
+  assert(!/GUIDANCE NEEDS REVIEW/.test(all), 'no review cards expected for the hat');
+  assert(/Cast on 100 stitches/.test(all) && /Join in the round/.test(all), 'Adult S cast-on with join');
+  assert(/WORKING IN THE ROUND|In the round/i.test(all), 'working in the round');
+  assert(stopped, 'the repeat card was never reached');
+  return `${seen.length} cards`;
+});
+
+await test('GENERAL raglan: repeated kfb rounds show the stitch count and the designer\'s total as a checkpoint', async () => {
+  let checked = false;
+  const { seen } = await walkPat('raglan-sweater', 'M', 'Raglan', {
+    before: async () => {
+      if (checked || !(await tid('rep-stitches').count())) return;
+      if (!/88/.test((await page.locator('[data-testid=rep-stitches]').first().innerText()).replace(/\D/g, '')) && !/92/.test((await tid('rep-stitches').innerText()))) return;
+      assert((await tid('rep-stitches').innerText()).trim() === '92', `first round of the first repeat should end on 92: ${await tid('rep-stitches').innerText()}`);
+      checked = true;
+    },
+  });
+  const all = seen.join('\n');
+  assert(checked, 'stitch tile never seen');
+  assert(/kfb/.test(all) && /Do this 2 times/.test(all), 'kfb round with its repeated group');
+  assert(/You should now have\s*184\s*stitches/.test(all.replace(/\s+/g, ' ')), 'designer count 184 as a checkpoint at the last repeat');
+  assert(!/GUIDANCE NEEDS REVIEW/.test(all), 'no review cards expected for the raglan');
+  return `${seen.length} cards`;
+});
+
 /* ------------------- Flax (Tin Can Knits): 19 sizes, two columns, size subsets. Local fixture only. */
 const FLAX = 'fixtures/flax-worsted.pdf';
 if (existsSync(FLAX)) {
@@ -394,7 +483,7 @@ if (existsSync(FLAX)) {
     const seenL = [];
     for (let i = 0; i < 60; i++) { seenL.push(await cardText()); const k = await kind(); if (k !== 'steps') break; await tid('step-done').click(); await page.waitForTimeout(40); }
     const L = seenL.join('\n');
-    assert(/cast on 90 sts/.test(L), `L cast-on: ${L.slice(0, 300)}`);
+    assert(/Cast on 90 stitches/.test(L), `L cast-on: ${L.slice(0, 300)}`);
     for (const re of sizeLists) assert(!re.test(L), `size list leaked: ${L.match(re)?.[0]}`);
     // outline text for all instructions at L must not contain the XL-only rounds
     await tid('to-outline').click(); await page.waitForSelector('[data-testid=outline]');

@@ -1,5 +1,5 @@
 {
-  "ran": "2026-10-04T13:25:39.521Z",
+  "ran": "2026-10-04T13:52:59.973Z",
   "results": [
     {
       "name": "K0 import the synthetic pattern, size L, start knitting",
@@ -85,6 +85,26 @@
       "name": "DROPS 244-8 (local only), size L: the whole pattern can be walked in Knit mode; sizes/metric hold",
       "pass": true,
       "detail": "107 cards (106 iterations), 0 needing review"
+    },
+    {
+      "name": "GENERAL scarf: repeated ribbing rows are counted and end when the length is reached",
+      "pass": true,
+      "detail": "8 cards"
+    },
+    {
+      "name": "GENERAL blanket: one size, rows 1-2 repeated until 85 cm, finishing steps",
+      "pass": true,
+      "detail": "11 cards"
+    },
+    {
+      "name": "GENERAL hat: join in the round, 8 repeats of 2 rounds; Quick Stop mid-repeat survives a reload",
+      "pass": true,
+      "detail": "17 cards"
+    },
+    {
+      "name": "GENERAL raglan: repeated kfb rounds show the stitch count and the designer's total as a checkpoint",
+      "pass": true,
+      "detail": "74 cards"
     },
     {
       "name": "FLAX: 19 sizes with names like \"0-6 mo\" and \"Adult XS\" are found; the table fills Project Data in cm",

@@ -107,16 +107,31 @@ export function resolveText(text: string, sizes: string[], sizeIndex: number): s
  */
 export function parseSizeList(s: string): string[] {
   let t = s.replace(/^[:\s]+/, '');
+  // "One size", "One size, about 20 cm wide": a single size, whatever is said about its dimensions
+  if (/^(?:one|single|free|adjustable)[ -]?size\b/i.test(t) || /^os\b/i.test(t)) return ['One size'];
+  // "About 80 cm x 90 cm": a dimension, not a list of sizes
+  if (/^(?:about|approx\.?|approximately|\d)/i.test(t) && /\d\s?(?:cm|mm)\b|\binch|\bx\b/i.test(t) && !/^(?:\d+(?:-\d+)?\s?(?:mo|yrs?|months?|years?))/i.test(t)) return ['One size'];
   if (t.includes(',')) {
     // a comma list: names may contain spaces and hyphens; anything after the closing bracket's full stop is prose
     const cut = t.match(/^[^.]*?[)\]]\s*\.(?:\s|$)/) ?? t.match(/^[^.]*?\.(?:\s|$)/);
     if (cut) t = cut[0].replace(/\.\s*$/, '');
-    return t
+    const raw = t
       .replace(/[\[(]/g, ',')
       .replace(/[\])]/g, '')
       .split(',')
-      .map((x) => x.replace(/^\s*(?:adult|child|kids?|women'?s|men'?s)\s+/i, '').replace(/\s+/g, ' ').trim())
+      .map((x) => x.replace(/\s+/g, ' ').trim())
       .filter((x) => x && !/^and$/i.test(x));
+    // a prefix such as "Adult XS" is dropped only when a single entry carries it ("0-6 mo, …, Adult XS, S, M")
+    const prefix = (x: string) => x.match(/^(adult|child|kids?|women'?s|men'?s)\s+/i)?.[1]?.toLowerCase();
+    const counts = new Map<string, number>();
+    for (const x of raw) {
+      const p = prefix(x);
+      if (p) counts.set(p, (counts.get(p) ?? 0) + 1);
+    }
+    return raw.map((x) => {
+      const p = prefix(x);
+      return p && counts.get(p) === 1 ? x.replace(/^\S+\s+/, '') : x;
+    });
   }
   return t
     .split(/\s+[-–—]\s+|[\s,\[\]()]+/)

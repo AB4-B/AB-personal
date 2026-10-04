@@ -95,7 +95,7 @@ export function Home() {
       )}
 
       {visible.length > 0 && <div className="tip small-text">Tap a project to continue knitting or to view the full pattern.</div>}
-      <p className="tiny muted" style={{ textAlign: 'center', padding: '16px 16px 40px' }} data-testid="build-stamp">Build {__BUILD__} · guided knit mode · new look</p>
+      <p className="tiny muted" style={{ textAlign: 'center', padding: '16px 16px 40px' }} data-testid="build-stamp">Build {__BUILD__} · guided knit mode · any pattern</p>
       {menu && projects[menu.id] && <ProjectMenu project={projects[menu.id]} onClose={() => setMenu(undefined)} />}
       <ToastHost />
     </div>

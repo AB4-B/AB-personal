@@ -34,6 +34,10 @@ export const TECHNIQUES: Record<string, Technique> = {
   evenly: { id: 'evenly', name: 'Increase evenly spaced', how: ['Spread the new stitches across the row at roughly equal gaps.', 'Do not put any in the band stitches unless told to.'] },
   purl: { id: 'purl', name: 'Purl', abbr: 'p', how: ['Bring the yarn to the front, put the right needle into the next stitch from right to left, wrap the yarn, and pull a loop through.'] },
   knit: { id: 'knit', name: 'Knit', abbr: 'k', how: ['Put the right needle into the next stitch from front to back, wrap the yarn, and pull a loop through.'] },
+  kfb: { id: 'kfb', name: 'Knit front and back', abbr: 'kfb', how: ['Put the right needle into the next stitch as if to knit, wrap the yarn and pull a loop through, but do NOT slip the old stitch off.', 'Now put the right needle into the BACK of the same stitch, wrap the yarn and pull a loop through.', 'Slip the old stitch off. One stitch has become two.'], why: 'It adds one stitch, leaving a small bar that shows on the fabric.' },
+  ssp: { id: 'ssp', name: 'Slip, slip, purl', abbr: 'ssp', how: ['Slip 2 stitches knitwise, one at a time.', 'Put them back on the left needle (they are now turned).', 'Purl them together through the back loops. Two stitches become one, leaning left.'] },
+  german: { id: 'german', name: 'Doubled stitch (German short row)', how: ['Turn your work so the other side faces you.', 'Slip the first stitch purlwise with the yarn at the front.', 'Pull the yarn up and over the needle to the back, so the stitch looks like two loops lying on the needle.', 'When you reach it later, knit or purl both loops together as one stitch.'], why: 'It closes the gap at a turning point so short rows leave no hole.' },
+  join: { id: 'join', name: 'Join in the round', how: ['Check that the cast-on edge is not twisted around the needle (all the bumps face inward).', 'Bring the last stitch up next to the first stitch.', 'Knit the first stitch again: from now on you knit round and round and do not turn.'], why: 'Joining turns a flat strip into a tube.' },
   turn: { id: 'turn', name: 'Turn your work', how: ['At the end of the row, swap the needles between your hands so the other side faces you.', 'The yarn now sits at the start of the next row.'] },
   buttonhole: { id: 'buttonhole', name: 'Buttonhole (yarn-over type)', how: ['Make 1 yarn over, then knit 2 together.', 'The yarn over makes a hole; the k2tog keeps the stitch count the same.', 'On the next row, knit the yarn over normally (do not twist it) so the hole stays open.'] },
 };
@@ -62,5 +66,9 @@ export function techniquesIn(text: string): string[] {
   add('evenly', /evenly spaced/);
   add('buttonhole', /buttonhole/);
   add('cast', /cast on/);
+  add('kfb', /\bkfb\b|knit front and back|front and the back of the same/);
+  add('ssp', /\bssp\b/);
+  add('german', /doubled stitch|german short/);
+  add('join', /join in the round/);
   return [...new Set(out)];
 }

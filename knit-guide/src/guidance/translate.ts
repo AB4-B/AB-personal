@@ -13,6 +13,7 @@ import { splitAtSentences } from '../model/text';
 import type { KnitPrefs } from '../model/types';
 import { techniquesIn } from './techniques';
 import { explain } from '../engine/explain';
+import { interpretSequence, stripNotes } from './ops';
 
 export type Construction = 'flat' | 'round';
 
@@ -37,7 +38,31 @@ export interface TStep {
   /** blocking: the guide could not translate this safely */
   review?: boolean;
   original?: string;
+  /** an explanation, not an action: shown as plain text without a tick */
+  note?: boolean;
 }
+
+export interface RepeatRound {
+  label: string;
+  steps: TStep[];
+  /** stitches gained or lost in this round, when it can be worked out */
+  delta?: number;
+}
+
+/** "Round 1 … Round 2 … Work rounds 1-2 a total of 7 times": rounds that repeat, counted for you. */
+export interface RepeatBlock {
+  unit: 'round' | 'row';
+  rounds: RepeatRound[];
+  /** how many times; undefined when the pattern repeats until a measurement */
+  times?: number;
+  /** "repeat rows 1-2 until the scarf measures 160 cm" */
+  until?: { cm: number; what: string; from?: string };
+  /** stitches on the needle before the first repeat, and the designer's stated count after the last */
+  before?: number;
+  statedAfter?: number;
+}
+
+export type TPart = { kind: 'steps'; steps: TStep[] } | { kind: 'repeat'; block: RepeatBlock };
 
 export interface MeasurementCheck {
   key: string;
@@ -57,6 +82,8 @@ export interface Translation {
   next: Partial<Pick<TCtx, 'stitches' | 'aside' | 'band' | 'lastCastOn' | 'lastSide'>>;
   assumptions: string[];
   review: boolean;
+  /** in order, when the instruction contains a repeat block; otherwise the steps are the whole instruction */
+  parts?: TPart[];
   magicLoop?: boolean;
   /** sentence consumed as a row guide / schedule elsewhere */
   info?: boolean;
@@ -572,7 +599,462 @@ function evenly(a: Acc, count: number, total: number, flat: boolean, excludeBand
   a.why.push('Spreading the increases evenly makes the fabric grow smoothly instead of flaring in one place.');
 }
 
-/* ------------------------------------------------------------- stitch ops */
+/* ------------------------------------------------------- general vocabulary */
+
+const NOTE_START =
+  /^(?:note\b|you (?:may|can|will|should)|this is\b|these\b|the (?:\d+ |central )?[a-z ]*(?:markers?|sts|stitches) (?:separate|are|is)|while (?:working|short)|to work\b|throughout the\b|keep (?:the )?bor marker|sleeve sts are placed|on the (?:following|separation) round|select one of|the simpler|an alternative|working the|optional\b|we (?:use|prefer)|for help\b|tip\b|share your\b|we love\b|they\b|double the stitch on|pass the yarn over the needle|bring the yarn between|with yarn on the|this .doubled)/i;
+
+const HEAD =
+  /^((?:[A-Za-z-]+ ){0,2}(?:rows?|rounds?|rnds?)(?: \d+)?(?: ?\([^)]*\))?|marker set-?up|set-?up(?: round| row)?|shift bor|separation round|neckline increase round)\s*:\s*(.+)$/i;
+
+interface Def {
+  kind: 'round' | 'even';
+  label: string;
+  n?: number;
+  steps: TStep[];
+  delta?: number;
+  count?: number;
+}
+
+const mkStep = (text: string, tech: string[] = techniquesIn(text), extra: Partial<TStep> = {}): TStep => ({ text, tech, ...extra });
+const fromOp = (st: { text: string; tech: string[]; note?: boolean }): TStep => mkStep(st.text, st.tech, st.note ? { note: true } : {});
+
+interface Work {
+  pending: Def[];
+  parts: TPart[];
+  partStart: number;
+  lastRepeat?: RepeatBlock;
+}
+
+function setStitches(a: Acc, k: number | undefined) {
+  if (k === undefined || Number.isNaN(k)) return;
+  a.next.stitches = k;
+  a.ctx.stitches = k;
+}
+
+function applyCounts(a: Acc, r: { delta: number; deltaKnown: boolean; statedTotal?: number; statedChange?: number; startAt?: number; endsEmpty?: boolean }, label: string, w?: Work, checkOnly = false) {
+  const before = r.startAt ?? a.ctx.stitches;
+  if (checkOnly) {
+    if (r.statedChange !== undefined && r.deltaKnown && r.statedChange !== r.delta) a.assumptions.push(`Check ${label}: the steps change ${r.delta >= 0 ? '+' : ''}${r.delta} stitches, but the pattern says ${r.statedChange >= 0 ? '+' : ''}${r.statedChange}.`);
+    return;
+  }
+  if (r.statedTotal !== undefined) {
+    a.checkpoint = { expected: r.statedTotal, label: 'count given by the pattern' };
+    if (before !== undefined && r.deltaKnown && before + r.delta !== r.statedTotal) {
+      a.assumptions.push(`Check ${label}: ${before} ${r.delta >= 0 ? '+' : '−'} ${Math.abs(r.delta)} is ${before + r.delta}, but the pattern says ${r.statedTotal}. Recount and trust the pattern.`);
+    }
+    setStitches(a, r.statedTotal);
+    if (w?.lastRepeat) w.lastRepeat.statedAfter = r.statedTotal;
+  } else if (r.endsEmpty) {
+    a.next.stitches = undefined;
+    a.ctx.stitches = undefined;
+  } else if (r.deltaKnown && before !== undefined && (r.delta !== 0 || r.startAt !== undefined)) {
+    setStitches(a, before + r.delta);
+  }
+  if (r.statedChange !== undefined && r.deltaKnown && r.statedChange !== r.delta) {
+    a.assumptions.push(`Check ${label}: the steps change ${r.delta >= 0 ? '+' : ''}${r.delta} stitches, but the pattern says ${r.statedChange >= 0 ? '+' : ''}${r.statedChange}.`);
+  }
+}
+
+/** A sequence of stitch operations ("k2, yo, ssk") as physical steps. Returns false if any part is unknown. */
+function sequenceSteps(body: string, a: Acc, w: Work, head?: string): boolean {
+  const { body: core, total, change } = stripNotes(body.replace(/\.$/, ''));
+  const r = interpretSequence(core);
+  if (!r) return false;
+  flush(a, w);
+  if (head) a.steps.push(mkStep(`${head}:`, [], { note: true }));
+  for (const st of r.steps) a.steps.push(fromOp(st));
+  if (r.joinRound) roundNote(a);
+  else if (r.turns > 0 && !a.construction) flatNote(a);
+  applyCounts(a, { ...r, statedTotal: total ?? r.statedTotal, statedChange: change ?? r.statedChange }, head ?? 'this step', w);
+  return true;
+}
+
+/** Emit rounds that were being collected and turned out not to be part of a repeat. */
+function flush(a: Acc, w: Work) {
+  for (const d of w.pending) emitDef(a, d);
+  w.pending = [];
+}
+
+function emitDef(a: Acc, d: Def) {
+  if (d.kind === 'even') {
+    a.steps.push(mkStep(`Work ${d.count} ${d.label}${d.count === 1 ? '' : 's'} even: keep working in pattern, no shaping.`, []));
+    return;
+  }
+  a.steps.push(mkStep(`${d.label}:`, [], { note: true }));
+  a.steps.push(...d.steps);
+  const before = a.ctx.stitches;
+  if (d.delta !== undefined && before !== undefined && d.delta !== 0) setStitches(a, before + d.delta);
+}
+
+function consumeRepeat(a: Acc, w: Work, unit: 'round' | 'row', times: number | undefined, from?: number, to?: number, statedRounds?: number, until?: RepeatBlock['until']): boolean {
+  let take = w.pending;
+  let keepBefore: Def[] = [];
+  let keepAfter: Def[] = [];
+  if (from !== undefined && to !== undefined) {
+    const idxs = w.pending.map((d, i) => (d.kind === 'round' && d.n !== undefined && d.n >= from && d.n <= to ? i : -1)).filter((i) => i >= 0);
+    if (!idxs.length) return false;
+    keepBefore = w.pending.slice(0, idxs[0]);
+    take = w.pending.slice(idxs[0], idxs[idxs.length - 1] + 1);
+    keepAfter = w.pending.slice(idxs[idxs.length - 1] + 1);
+  }
+  if (!take.length) return false;
+  const rounds: RepeatRound[] = [];
+  for (const d of take) {
+    if (d.kind === 'even') for (let i = 0; i < (d.count ?? 0); i++) rounds.push({ label: `Plain ${unit}`, steps: [mkStep(`Work this ${unit} in pattern with no shaping: knit the knits, purl the purls, keep any garter panels as set.`, [])], delta: 0 });
+    else rounds.push({ label: d.label, steps: d.steps, delta: d.delta });
+  }
+  if (times !== undefined && statedRounds !== undefined && statedRounds !== rounds.length * times && statedRounds !== rounds.length) {
+    a.assumptions.push(`The pattern says ${statedRounds} ${unit}s in all, but ${rounds.length} ${unit}${rounds.length === 1 ? '' : 's'} × ${times} is ${rounds.length * times}. Check View Original.`);
+  }
+  // earlier rounds that are not in the repeat are worked once, first
+  w.pending = keepBefore;
+  flush(a, w);
+  if (a.steps.length > w.partStart) w.parts.push({ kind: 'steps', steps: a.steps.slice(w.partStart) });
+  const block: RepeatBlock = { unit, rounds, times, until, before: a.ctx.stitches };
+  w.parts.push({ kind: 'repeat', block });
+  w.lastRepeat = block;
+  w.partStart = a.steps.length;
+  const allKnown = rounds.every((r) => r.delta !== undefined);
+  if (allKnown && a.ctx.stitches !== undefined) {
+    const perRepeat = rounds.reduce((n, r) => n + (r.delta ?? 0), 0);
+    if (times !== undefined) setStitches(a, a.ctx.stitches + perRepeat * times);
+    else if (perRepeat === 0) setStitches(a, a.ctx.stitches);
+  }
+  if (until) a.measurement = { key: `rep-until:${a.ctx.sectionTitle}:${until.what}:${fmtCm(until.cm)}`, target: until.cm, label: `${until.what} length`, from: until.from ?? 'the cast-on edge (lay it flat, do not stretch it)' };
+  w.pending = keepAfter;
+  return true;
+}
+
+const GENERIC: Rec[] = [
+  {
+    name: 'cast-on-general',
+    re: /^(?:(?:using|with|on) (.+?),?\s+)?cast on (\d+)(?: sts| stitches)?(?: (?:using|with) (?:the )?(.+?))?(?:,\s*(.+))?$/i,
+    run: (m, a, s) => {
+      const k = Number(m[2]);
+      const tail = m[4];
+      const prov = /provisional/i.test(s);
+      if (m[1]) {
+        const nd = needleFrom(m[1]);
+        if (nd.mm) needleNeeds(a, m[1], false);
+        else step(a, `Pick up your ${m[1].replace(/^the /, '')}.`);
+      }
+      step(a, prov ? `Cast on ${sts(k)} using a provisional cast-on.` : `Cast on ${sts(k)}${m[3] && !/^(?:the )?(?:needles?|yarn)$/.test(m[3]) ? ` using ${m[3]}` : ''}.`, { tech: prov ? ['provisional', 'cast'] : ['cast'] });
+      setStitches(a, k);
+      a.next.lastCastOn = k;
+      a.checkpoint = { expected: k, label: 'cast-on' };
+      if (tail) {
+        const r = interpretSequence(tail);
+        if (r) {
+          for (const st of r.steps) a.steps.push(fromOp(st));
+          if (r.joinRound) roundNote(a);
+        } else {
+          step(a, `⚠ GUIDANCE NEEDS REVIEW: "${tail}"`, { review: true, original: tail });
+          a.review = true;
+        }
+      }
+      a.why.push('This is the starting edge of the piece.');
+    },
+  },
+  {
+    name: 'join-round',
+    re: /^(?:then )?(?:place (?:a )?(?:bor |beginning[- ]of[- ]round )?marker(?: and|,) ?)?join(?: for| to)?(?: working| work)? in the round(?:,? (?:being careful )?(?:not to|to avoid) twist(?:ing)?(?: the (?:stitches|sts))?)?$/i,
+    run: (_m, a) => {
+      step(a, 'Place a marker on the right needle to mark the beginning of the round.', { tech: ['markers'] });
+      step(a, 'Join in the round: bring the last stitch next to the first without twisting the stitches, then start knitting round and round.', { tech: ['join'] });
+      roundNote(a);
+    },
+  },
+  {
+    name: 'needle-change',
+    re: /^(?:after casting on,? )?(?:switch|change) to (?:the |your )?(larger|smaller|bigger)?(?: circular| double[- ]pointed| dpn)? ?needles?(?: size ([\d.]+) mm)?(?:,? (?:and|then) (.+)|,\s*(.+))?$/i,
+    run: (m, a) => {
+      const which = m[1] ? ` (${m[1].toLowerCase() === 'smaller' ? 'the smaller ones, usually used for ribbing' : 'the larger ones used for the body'})` : '';
+      step(a, `Change to your ${m[1] ? `${m[1].toLowerCase()} ` : ''}${m[2] ? `${fmtCm(Number(m[2]))} mm ` : ''}needles${which}.`);
+      if (m[2]) a.needs.push(`${fmtCm(Number(m[2]))} mm needles`);
+      const rest = m[3] ?? m[4];
+      if (rest) handleRest(a, rest);
+    },
+  },
+  {
+    name: 'rib-for',
+    re: /^(?:after casting on,? )?work in (?:(\d)x(\d)|k(\d),? ?p(\d)) (?:\(k\d,? ?p\d\) )?rib(?:bing)?(?: \(k\d,? ?p\d\))?(?: for (\d+(?:\.\d+)?) (cm|rounds?|rows?))?$/i,
+    run: (m, a) => {
+      const kk = m[1] ?? m[3];
+      const pp = m[2] ?? m[4];
+      const round = (a.ctx.construction ?? a.construction) === 'round';
+      const size = m[5] ? Number(m[5]) : undefined;
+      if (round) step(a, `Work in ${kk}x${pp} rib in the round: knit ${kk}, purl ${pp}, and repeat to the end of every round. Do not turn your work.`, { tech: ['rib'] });
+      else step(a, `Work in ${kk}x${pp} rib: knit ${kk}, purl ${pp} across the row, then turn. On the next row knit the knits and purl the purls as they face you.`, { tech: ['rib'] });
+      if (size !== undefined && m[6].toLowerCase() === 'cm') {
+        step(a, `Keep going, round after round, until the rib measures ${fmtCm(size)} cm.`.replace('round after round', round ? 'round after round' : 'row after row'));
+        a.measurement = { key: `rib:${a.ctx.sectionTitle}:${fmtCm(size)}`, target: size, label: 'rib length', from: 'the cast-on edge (lay it flat, do not stretch it)' };
+      } else if (size !== undefined) {
+        step(a, `Work ${size} ${m[6].toLowerCase()} in all. Tick them off as you go.`);
+      }
+      a.why.push('Ribbing is stretchy and pulls in, so the edge hugs the body.');
+    },
+  },
+  {
+    name: 'increase-evenly-general',
+    re: /^(?:(?:knit|work) )?(?:increasing|increase) (\d+) (?:sts|stitches)(?: evenly)?(?: spaced)?(?: (?:across|around))?(?: the (?:row|round))?$/i,
+    run: (m, a, s) => {
+      void s;
+      const count = Number(m[1]);
+      const flat = (a.ctx.construction ?? a.construction) !== 'round';
+      const total = a.ctx.stitches !== undefined ? a.ctx.stitches + count : 0;
+      if (!a.ctx.stitches) {
+        step(a, `Increase ${count} stitches evenly spaced across the round (about every ${'few'} stitches). The pattern does not say which increase to use: a make-1 (M1L) or kfb are both fine.`, { tech: ['increase', 'evenly'] });
+        return;
+      }
+      evenly(a, count, total, flat, false);
+    },
+  },
+  {
+    name: 'stated-count-only',
+    re: /^\[(\d+) (?:[a-z]+ )?(?:sts|stitches)\b(?:,\s*)?([^\]]*)\]\.?$/i,
+    run: (m, a) => {
+      const k = Number(m[1]);
+      step(a, `CHECK: you should have ${k} stitches in total.`);
+      for (const part of (m[2] ?? '').split(/,\s*/).filter(Boolean)) step(a, `CHECK: ${part.replace(/\bsts\b/, 'stitches')}.`);
+      a.checkpoint = { expected: k, label: 'count given by the pattern' };
+      setStitches(a, k);
+    },
+  },
+  {
+    name: 'work-until-measures',
+    re: /^(?:work|knit|continue)(?: even| in pattern| straight| in stockinette(?: stitch)?| in garter(?: stitch)?)?\s*(?:\([^)]*\)\s*)?until (?:the )?([a-z ]+?) measures (?:at least )?(\d+(?:\.\d+)?) cm(?: deep| long)?(?:,? (?:measured )?(?:from|at) (.+?))?(?:,? or (\d+(?:\.\d+)?) cm short of (?:the )?desired length)?$/i,
+    run: (m, a) => {
+      const what = m[1].trim();
+      const target = Number(m[2]);
+      step(a, `Keep working in pattern with no more shaping, round after round (or row after row), until the ${what} measures ${fmtCm(target)} cm.`);
+      if (m[4]) step(a, `Or, if you want a different length: stop ${fmtCm(Number(m[4]))} cm short of the length you want, then add the ribbing.`);
+      step(a, 'Lay the piece flat and measure it without stretching.');
+      a.measurement = { key: `until:${a.ctx.sectionTitle}:${what}:${fmtCm(target)}`, target, label: `${what} length`, from: m[3] ? m[3].replace(/,.*$/, '') : 'where you started this part' };
+      a.why.push('The pattern is measurement-based, so the app cannot know the row count for you. Use MEASUREMENT CHECK.');
+    },
+  },
+  {
+    name: 'work-until-options',
+    re: /^work (?:even|in pattern|in stockinette(?: stitch)?|in garter(?: stitch)?)?\s*until (?:the )?([a-z ]+?) measures:?$/i,
+    run: (m, a) => {
+      step(a, `Keep working until the ${m[1].trim()} reaches the length you choose from the options that follow.`);
+    },
+  },
+  {
+    name: 'work-length',
+    re: /^work (\d+(?:\.\d+)?) cm(?: even| in pattern| straight)?$/i,
+    run: (m, a) => {
+      const target = Number(m[1]);
+      step(a, `Keep working in pattern until this part has grown ${fmtCm(target)} cm from where it started.`);
+      step(a, 'Lay the piece flat and measure it without stretching.');
+      a.measurement = { key: `grow:${a.ctx.sectionTitle}:${fmtCm(target)}:${a.ctx.stitches ?? ''}`, target, label: 'length of this part', from: 'where this part started' };
+    },
+  },
+
+  {
+    name: 'length-option',
+    re: /^([A-Za-z ]+?) lengths?:\s*(\d+(?:\.\d+)?) cm(?: from (.+?))?(?:,? or (\d+(?:\.\d+)?) cm short of (?:the )?desired length)?$/i,
+    run: (m, a) => {
+      const target = Number(m[2]);
+      step(a, `If you are knitting the ${m[1].toLowerCase()} length: work until the piece measures ${fmtCm(target)} cm${m[3] ? ` from ${m[3]}` : ''}.`);
+      if (m[4]) step(a, `Or stop ${fmtCm(Number(m[4]))} cm short of the length you want, then add the ribbing.`);
+      a.measurement = { key: `len-opt:${a.ctx.sectionTitle}:${m[1]}:${fmtCm(target)}`, target, label: `${m[1].toLowerCase()} length`, from: m[3] ?? 'where this part started' };
+      a.why.push('Choose ONE length option. The pattern gives a measurement, not a number of rows.');
+    },
+  },
+  {
+    name: 'labelled-sentence',
+    re: /^((?:[A-Za-z]+ ){0,4}(?:lengths?|options?|methods?)):\s+(.+)$/i,
+    run: (m, a) => {
+      step(a, `For: ${m[1]}.`, { note: true });
+      handleRest(a, m[2]);
+    },
+  },
+
+  {
+    name: 'weave-in',
+    re: /^weave in (?:all |the )?(?:yarn )?(?:ends|tails)\b.*$/i,
+    run: (_m, a, s) => {
+      step(a, 'Weave in all the loose yarn ends: thread each one onto a darning needle and run it through the back of the stitches for a few centimetres, then trim.');
+      const sew = s.match(/sew up (.+?)(?:,| then| and block|$)/i);
+      if (sew) step(a, `Use the yarn tails to sew up ${sew[1]}.`);
+      if (/block/i.test(s)) step(a, 'Block the finished piece: wet it (or steam it), shape it to the measurements, and leave it flat to dry.');
+    },
+  },
+  {
+    name: 'block',
+    re: /^(?:wet |steam |spray )?block\b.*$/i,
+    run: (_m, a) => {
+      step(a, 'Block the finished piece: wet it (or steam it), shape it to the measurements, and leave it flat to dry.');
+    },
+  },
+  {
+    name: 'close-top',
+    re: /^(?:cut|break) (?:the )?yarn(?:,? leaving (?:a )?(?:long |15 cm |20 cm )?tail[^,]*)?,? (?:and )?thread (?:it )?through (?:the )?(?:remaining |all |live )?(?:stitches|sts)(?:,? (?:and )?pull tight)?(?:,? (?:and )?fasten off)?$/i,
+    run: (_m, a) => {
+      step(a, 'Cut the yarn, leaving a tail about 20 cm long.');
+      step(a, 'Thread the tail onto a darning needle and pass it through all the stitches left on your needle, slipping each one off as you go.');
+      step(a, 'Pull the tail tight to close the hole, then fasten it off on the inside.');
+    },
+  },
+  {
+    name: 'fasten-off',
+    re: /^(?:cut|break) (?:the )?yarn(?:,? leaving (?:a )?(?:long |[\d.]+ cm )?tail[^,]*)?(?:,? (?:and )?(?:fasten off|pull (?:it )?through(?: the last (?:stitch|loop))?))?$|^fasten off\b.*$/i,
+    run: (_m, a) => {
+      step(a, 'Cut the yarn, leaving a tail long enough to weave in later (about 15 cm).');
+      step(a, 'Pull the tail through the last loop on the needle and tighten it to fasten off.');
+    },
+  },
+  {
+    name: 'sewing',
+    re: /^(?:sew|seam|graft|attach|fasten|embroider|sew on|stitch (?:down|together|up))\b.+$/i,
+    run: (_m, a, s) => {
+      step(a, s.endsWith('.') ? s : `${s}.`);
+    },
+  },
+  {
+    name: 'conditional',
+    re: /^if (.+?),\s+(.+)$/i,
+    run: (m, a) => {
+      step(a, `Only if ${m[1]}:`, { note: true });
+      handleRest(a, m[2]);
+    },
+  },
+  {
+    name: 'use-needles-to',
+    re: /^use (?:the |your )?(smaller|larger|bigger)? ?needles? to (.+)$/i,
+    run: (m, a) => {
+      step(a, `Use your ${m[1] ? m[1].toLowerCase() + ' ' : ''}needles${m[1] && /smaller/i.test(m[1]) ? ' (the ribbing needles)' : ''}.`);
+      handleRest(a, m[2]);
+    },
+  },
+  {
+    name: 'proceed',
+    re: /^(?:then )?proceed to (.+)$/i,
+    run: (m, a) => {
+      step(a, `Next you will move on to: ${m[1]}.`, { note: true });
+    },
+  },
+];
+
+/** Used by needle-change to translate what follows "and …". */
+function handleRest(a: Acc, rest: string) {
+  const w: Work = { pending: [], parts: [], partStart: a.steps.length };
+  handleSentence(rest.charAt(0).toUpperCase() + rest.slice(1), a, w);
+  flush(a, w);
+}
+
+function handleSentence(sentence: string, acc: Acc, w: Work) {
+  const orig = sentence.trim();
+  const s = orig.replace(/\.$/, '').replace(/,? this is (\d+) (?:sts|stitches)$/i, ' [$1 sts]');
+  if (/⟦|SIZE VALUE NEEDS REVIEW/.test(s)) {
+    flush(acc, w);
+    step(acc, '⚠ SIZE VALUE NEEDS REVIEW: choose your value first (see the instruction).', { review: true, original: s });
+    acc.review = true;
+    return;
+  }
+  const done = () => {
+    Object.assign(acc.ctx, acc.next);
+    if (acc.ctx.construction === undefined && acc.construction) acc.ctx.construction = acc.construction;
+  };
+
+  // designer-specific, exactly-worded recognizers first
+  const rec = RECOGNIZERS.find((r) => r.re.test(s));
+  if (rec) {
+    flush(acc, w);
+    rec.run(s.match(rec.re)!, acc, s);
+    done();
+    return;
+  }
+
+  // repeat statements over collected rounds
+  let m = s.match(/^work these (\d+) (rows?|rounds?)(?: in all)? a total of (\d+)(?: times?)?(?:,? this is (\d+) (?:rows?|rounds?))?$/i);
+  if (m && consumeRepeat(acc, w, /row/i.test(m[2]) ? 'row' : 'round', Number(m[3]), undefined, undefined, m[4] ? Number(m[4]) : undefined)) return done();
+  m = s.match(/^work (?:short )?(rows?|rounds?) (\d+)\s*[-–]\s*(\d+) a total of (\d+)(?: times?)?(?:,? this is (\d+) (?:rows?|rounds?))?$/i);
+  if (m && consumeRepeat(acc, w, /row/i.test(m[1]) ? 'row' : 'round', Number(m[4]), Number(m[2]), Number(m[3]), m[5] ? Number(m[5]) : undefined)) return done();
+
+  m = s.match(/^(?:work|repeat) (?:these |the )?(?:short )?(rows?|rounds?) (\d+)\s*[-–]\s*(\d+),? (?:again )?until (?:the )?([a-z ]+?) measures (?:at least )?(\d+(?:\.\d+)?) cm(?: from (.+))?$/i);
+  if (m && consumeRepeat(acc, w, /row/i.test(m[1]) ? 'row' : 'round', undefined, Number(m[2]), Number(m[3]), undefined, { cm: Number(m[5]), what: m[4].trim(), from: m[6] })) return done();
+  m = s.match(/^repeat these (\d+) (rows?|rounds?) until (?:the )?([a-z ]+?) measures (?:at least )?(\d+(?:\.\d+)?) cm(?: from (.+))?$/i);
+  if (m && consumeRepeat(acc, w, /row/i.test(m[2]) ? 'row' : 'round', undefined, undefined, undefined, undefined, { cm: Number(m[4]), what: m[3].trim(), from: m[5] })) return done();
+
+  // plain rounds that may belong to a repeat
+  m = s.match(/^work (\d+) (rows?|rounds?) (?:even|in pattern|plain)$/i);
+  if (m) {
+    w.pending.push({ kind: 'even', label: m[2].toLowerCase().replace(/s$/, ''), count: Number(m[1]), steps: [] });
+    return;
+  }
+
+  // "Round 1: …", "Decrease round: …" are collected (they may be repeated); other headed sequences run now
+  const hm = s.match(HEAD);
+  if (hm) {
+    const head = hm[1].trim();
+    const { body, total, change } = stripNotes(hm[2].replace(/\.$/, ''));
+    const r = interpretSequence(body);
+    if (r) {
+      const numbered = head.match(/^(?:short )?(?:rows?|rounds?|rnds?) (\d+)/i);
+      const collectable = !!numbered || /^(?:decrease|increase|plain)\s+(?:rows?|rounds?)$/i.test(head);
+      if (collectable) {
+        w.pending.push({
+          kind: 'round',
+          label: head.charAt(0).toUpperCase() + head.slice(1),
+          n: numbered ? Number(numbered[1]) : undefined,
+          steps: r.steps.map(fromOp),
+          delta: r.deltaKnown ? r.delta : undefined,
+        });
+        if (r.joinRound) roundNote(acc);
+        if (change !== undefined) applyCounts(acc, { ...r, statedTotal: undefined, statedChange: change }, head, w, true);
+        return;
+      }
+      flush(acc, w);
+      acc.steps.push(mkStep(`${head.charAt(0).toUpperCase() + head.slice(1)}:`, [], { note: true }));
+      for (const st of r.steps) acc.steps.push(fromOp(st));
+      if (r.joinRound) roundNote(acc);
+      else if (r.turns > 0 && !acc.construction) flatNote(acc);
+      applyCounts(acc, { ...r, statedTotal: total ?? r.statedTotal, statedChange: change ?? r.statedChange }, head, w);
+      return done();
+    }
+  }
+
+  // general sentences (cast on and join, rib for, needle change, evenly spaced increases, …)
+  const { body: gBody, total: gTotal } = stripNotes(s.replace(/\.$/, ''));
+  const gen = GENERIC.find((g) => g.re.test(gBody) || g.re.test(s));
+  if (gen) {
+    flush(acc, w);
+    const text = gen.re.test(gBody) ? gBody : s;
+    gen.run(text.match(gen.re)!, acc, text);
+    if (gTotal !== undefined && gen.name !== 'stated-count-only') {
+      acc.checkpoint = { expected: gTotal, label: 'count given by the pattern' };
+      if (acc.ctx.stitches !== undefined && acc.next.stitches !== undefined && acc.next.stitches !== gTotal) {
+        acc.assumptions.push(`Check: the steps give ${acc.next.stitches} stitches, but the pattern says ${gTotal}. Trust the pattern and recount.`);
+      }
+      setStitches(acc, gTotal);
+    }
+    if (gen.name === 'stated-count-only' && w.lastRepeat && w.lastRepeat.statedAfter === undefined) {
+      const t = s.match(/^\[(\d+)/);
+      if (t) w.lastRepeat.statedAfter = Number(t[1]);
+    }
+    return done();
+  }
+
+  // bare stitch sequences ("k2tog, k1")
+  if (sequenceSteps(s, acc, w)) return done();
+
+  // explanations are shown as notes, not as steps
+  if (NOTE_START.test(s)) {
+    flush(acc, w);
+    step(acc, orig, { note: true });
+    return;
+  }
+  if (stitchOpSteps(s, acc)) {
+    flush(acc, w);
+    return;
+  }
+  flush(acc, w);
+  step(acc, `⚠ GUIDANCE NEEDS REVIEW: the guide could not safely translate this into steps.`, { review: true, original: orig });
+  acc.review = true;
+}
 
 function stitchOpSteps(s: string, a: Acc): boolean {
   const ex = explain(s.replace(/^(?:set-?up |next )?(?:rows?|rounds?)[^:]*:\s*/i, ''), [], []);
@@ -597,31 +1079,33 @@ export function translate(text: string, ctx: TCtx): Translation {
     held: 0,
     construction: ctx.construction,
   };
-  const sentences = splitAtSentences(text.replace(/\s+/g, ' ').trim());
-  for (const s of sentences) {
-    if (/⟦|SIZE VALUE NEEDS REVIEW/.test(s)) {
-      step(acc, '⚠ SIZE VALUE NEEDS REVIEW: choose your value first (see the instruction).', { review: true, original: s });
-      acc.review = true;
-      continue;
-    }
-    // running totals so later sentences can use them
-    const before = acc.ctx.stitches;
-    const rec = RECOGNIZERS.find((r) => r.re.test(s.trim()));
-    if (rec) {
-      rec.run(s.trim().match(rec.re)!, acc, s.trim());
-      Object.assign(acc.ctx, acc.next);
-      if (acc.ctx.construction === undefined && acc.construction) acc.ctx.construction = acc.construction;
-      void before;
-      continue;
-    }
-    if (stitchOpSteps(s, acc)) continue;
-    step(acc, `⚠ GUIDANCE NEEDS REVIEW: the guide could not safely translate this into steps.`, { review: true, original: s });
-    acc.review = true;
+  const w: Work = { pending: [], parts: [], partStart: 0 };
+  const sentences = text
+    .split('\n')
+    .flatMap((line) => splitAtSentences(line.replace(/\s+/g, ' ').trim()))
+    .flatMap((x) =>
+      x
+        // a "[124 sts]" note belongs with the sentence before it
+        .replace(/([.!?])\s+(?=\[)/g, '$1\u0000')
+        // a new capitalised instruction right after "]" starts a new sentence
+        .replace(/(\])\s+(?=[A-Z][a-z]+\b)/g, '$1\u0000')
+        // rows printed one after another without a full stop: "turn work Short row 2 (WS): …"
+        .replace(/(\S)\s+(?=(?:Short row|Row|Round|Rnd) \d+\s*(?:\([^)]*\))?\s*:)/g, '$1\u0000')
+        // "… twice The 4 markers …", "… stop While working …", "… measures: Regular length: …"
+        .replace(/\b(twice|once|times|stop|measures:|stitch\))\s+(?=(?:The|This|These|While|You|They|Note|We|Regular|Cropped)\b)/g, '$1\u0000')
+        .replace(/\b(twice|once)\s+(?=[A-Z][a-z]+ )/g, '$1\u0000')
+        .replace(/\b(turn work|even|stop)\s+(?=Work\b)/g, '$1\u0000')
+        .split('\u0000'),
+    );
+  for (const s of sentences) handleSentence(s, acc, w);
+  flush(acc, w);
+  if (w.parts.length) {
+    if (acc.steps.length > w.partStart) w.parts.push({ kind: 'steps', steps: acc.steps.slice(w.partStart) });
   }
   const { ctx: _ctx, held: _held, ...rest } = acc;
   void _ctx;
   void _held;
-  return { ...rest, construction: acc.construction };
+  return { ...rest, parts: w.parts.length ? w.parts : undefined, construction: acc.construction };
 }
 
 /** Header line for flat / round, independent of the needle type. */

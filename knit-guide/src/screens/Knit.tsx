@@ -7,7 +7,7 @@ import { StitchCounterCard } from '../components/Counters';
 import { useResolver } from '../components/Resolver';
 import { TrackerCard } from '../components/TrackerCard';
 import { constructionText } from '../guidance/translate';
-import { buildModel, resolveCurrent, stepsKeyFor, yokeRow, bhKey, measuredKey, prefsOf } from '../guidance/flow';
+import { buildModel, currentPart, resolveCurrent, stepsKeyFor, yokeRow, bhKey, measuredKey, prefsOf } from '../guidance/flow';
 import type { Guidance } from '../guidance/flow';
 import { dueCm } from '../guidance/plan';
 import { TECHNIQUES } from '../guidance/techniques';
@@ -17,7 +17,7 @@ import { guideInstruction, guidePlain } from '../model/guide';
 import { findInstruction, formatWhen, guideCtxOf } from '../model/helpers';
 import type { Pattern, Project } from '../model/types';
 import {
-  addStitchCounter, attachStopNote, finishAndAdvance, knitFromHere, measuredEventDone, quickStop, recordMeasurement, saveCheckpoint, saveGuidanceOverride,
+  addStitchCounter, attachStopNote, finishAndAdvance, knitFromHere, measuredEventDone, phaseBack, phaseDone, phaseSkip, quickStop, recordMeasurement, saveCheckpoint, saveGuidanceOverride,
   setMeasuredDue, setTrackerFirst, setTrackerRow, tickStep, useStore, yokeRowBack, yokeRowDone,
 } from '../store/store';
 import { IconPdf, IconStop, Sheet, ToastHost, TopBar, toast } from '../ui/common';
@@ -40,15 +40,20 @@ function TechHelp({ ids, onOpen }: { ids: string[]; onOpen: (id: string) => void
 
 function StepList({ steps, keyId, project, onTech }: { steps: TStep[]; keyId: string; project: Project; onTech: (id: string) => void }) {
   const done = project.knit?.stepsDone?.[keyId] ?? [];
-  const firstOpen = steps.findIndex((_, i) => !done.includes(i));
+  const firstOpen = steps.findIndex((st, i) => !st.note && !done.includes(i));
+  let n = 0;
   return (
     <ol className="ksteps" data-testid="knit-steps">
       {steps.map((s, i) => {
+        if (s.note) {
+          return <li key={i} className={`knote ${/:$/.test(s.text) ? 'head' : ''}`} data-testid="knit-note">{s.text}</li>;
+        }
+        n++;
         const on = done.includes(i);
         return (
           <li key={i} className={`kstep ${on ? 'done' : ''} ${i === firstOpen ? 'now' : ''} ${s.review ? 'rev' : ''}`} data-testid="knit-step">
-            <button className="kcheck" aria-label={on ? `Step ${i + 1} done, tap to undo` : `Mark step ${i + 1} done`} aria-pressed={on} onClick={() => tickStep(project.id, keyId, i, !on)}>
-              <i>{on ? '✓' : i + 1}</i>
+            <button className="kcheck" aria-label={on ? `Step ${n} done, tap to undo` : `Mark step ${n} done`} aria-pressed={on} onClick={() => tickStep(project.id, keyId, i, !on)}>
+              <i>{on ? '✓' : n}</i>
             </button>
             <div className="grow">
               <div className="kt">{s.text}</div>
@@ -320,12 +325,25 @@ function StepsCard({ g, project, pattern, onTech, onNote }: { g: Guidance; proje
   const prefs = prefsOf(project);
   const tr = g.tr!;
   const key = stepsKeyFor(g, project);
-  const override = g.override?.map((t) => ({ text: t, tech: [] as string[] }));
-  const steps = override ?? tr.steps;
+  const override: TStep[] | undefined = g.override?.map((t) => ({ text: t, tech: [] as string[] }));
+  const cp = currentPart(g, project);
+  const rep = cp?.part.kind === 'repeat' ? cp.part.block : undefined;
+  const steps = override ?? (cp ? (cp.part.kind === 'repeat' ? cp.part.block.rounds[cp.pos.idx]?.steps ?? [] : cp.part.steps) : tr.steps);
   const c = constructionText(g.construction, prefs);
   const sizeReview = guideInstruction(g.ins, gctx).review[0];
   const done = project.knit?.stepsDone?.[key] ?? [];
-  const next = () => { const n = finishAndAdvance(project.id, g.ins.id); if (!n) toast('Pattern finished'); };
+  const next = () => {
+    if (cp) return phaseDone(project.id, g.ins.id);
+    const n = finishAndAdvance(project.id, g.ins.id);
+    if (!n) toast('Pattern finished');
+  };
+  const actionable = steps.filter((x) => !x.note).length;
+  const ticked = done.filter((i) => steps[i] && !steps[i].note).length;
+  // stitches after this round, only when every round's change is known
+  const per = rep && rep.rounds.every((r) => r.delta !== undefined) ? rep.rounds.reduce((x, r) => x + (r.delta ?? 0), 0) : undefined;
+  const after = rep && cp && per !== undefined && rep.before !== undefined ? rep.before + cp.pos.rep * per + rep.rounds.slice(0, cp.pos.idx + 1).reduce((x, r) => x + (r.delta ?? 0), 0) : undefined;
+  const lastRound = !!rep && !!cp && rep.times !== undefined && cp.pos.rep === rep.times - 1 && cp.pos.idx === rep.rounds.length - 1;
+  const unitWord = rep?.unit === 'row' ? 'ROW' : 'ROUND';
   return (
     <>
       <Where pattern={pattern} project={project} title={g.title} />
@@ -336,22 +354,40 @@ function StepsCard({ g, project, pattern, onTech, onNote }: { g: Guidance; proje
           <div className="need" data-testid="you-need"><span className="caps">YOU NEED</span><ul>{tr.needs.map((n, i) => <li key={i}>{n}</li>)}</ul></div>
         )}
         {override && <div className="badge gen">My interpretation</div>}
-        <section className="dothis"><h3>Do this</h3>
+        {rep && cp && (
+          <div className="track" data-testid="repeat-tracking">
+            <div className="tiles">
+              <div className="tile2" data-testid="track-line"><span className="tl">Repeat</span> <b data-testid="rep-count">{rep.times !== undefined ? `${cp.pos.rep + 1} of ${rep.times}` : cp.pos.rep + 1}</b></div>
+              <div className="tile2" data-testid="track-line"><span className="tl">{rep.unit === 'row' ? 'Row' : 'Round'}</span> <b data-testid="rep-round">{cp.pos.idx + 1} of {rep.rounds.length}</b></div>
+              {after !== undefined && <div className="tile2"><span className="tl">Stitches after this {rep.unit}</span> <b data-testid="rep-stitches">{after}</b></div>}
+              {per !== undefined && <div className="tile2"><span className="tl">Each repeat</span> <b>{per === 0 ? 'no change' : `${per > 0 ? '+' : ''}${per}`}</b></div>}
+            </div>
+          </div>
+        )}
+        <section className="dothis"><h3>{rep && cp ? rep.rounds[cp.pos.idx]?.label ?? 'Do this' : 'Do this'}</h3>
         <StepList steps={steps} keyId={key} project={project} onTech={onTech} /></section>
         {sizeReview && (
           <button className="btn small" data-testid="size-review-btn" onClick={() => resolver.open(g.ins, sizeReview)}>⚠ SIZE VALUE NEEDS REVIEW · CHOOSE MY VALUE</button>
         )}
         {g.review && !sizeReview && <ReviewBox project={project} pattern={pattern} g={g} onNote={onNote} />}
         {tr.measurement && <MeasureCheck project={project} mkey={tr.measurement.key} target={tr.measurement.target} label={tr.measurement.label} from={tr.measurement.from} />}
-        {tr.checkpoint && <Checkpoint project={project} cpKey={`${g.ins.id}:cp`} expected={tr.checkpoint.expected} label={tr.checkpoint.label} />}
+        {!cp && tr.checkpoint && <Checkpoint project={project} cpKey={`${g.ins.id}:cp`} expected={tr.checkpoint.expected} label={tr.checkpoint.label} />}
+        {lastRound && rep && (rep.statedAfter ?? after) !== undefined && <Checkpoint project={project} cpKey={`${g.ins.id}:p${cp!.pos.part}:cp`} expected={(rep.statedAfter ?? after)!} label={`after the last ${rep.unit} of the repeats`} />}
         <Why lines={tr.why} />
+        {rep?.until && (
+          <>
+            <MeasureCheck project={project} mkey={`${g.ins.id}:p${cp!.pos.part}:until`} target={rep.until.cm} label={rep.until.what} from={rep.until.from ?? 'the cast-on edge (lay it flat, do not stretch it)'} />
+            <button className="btn block" data-testid="repeat-length-reached" onClick={() => phaseSkip(project.id, g.ins.id)}>LENGTH REACHED · NEXT</button>
+          </>
+        )}
+        {cp && <div className="row wrap"><button className="btn small" data-testid="phase-back" onClick={() => phaseBack(project.id, g.ins.id)}>← Back one step</button></div>}
         <PatternSays text={guidePlain(g.ins, gctx)} pattern={pattern} />
         {tr.assumptions.length > 0 && <details className="assume"><summary>Assumptions</summary>{tr.assumptions.map((a) => <p key={a} className="small-text" style={{ margin: '4px 0' }}>{a}</p>)}</details>}
       </div>
       <Primary>
         <button className="btn primary kprimary" data-testid="step-done" onClick={next}>
-          <span>{g.construction === 'round' ? 'ROUND DONE' : 'DONE'} <span aria-hidden="true">→</span></span>
-          {done.length < steps.length && <small>{steps.length - done.length} step{steps.length - done.length === 1 ? '' : 's'} not ticked</small>}
+          <span>{rep ? `${unitWord} DONE` : g.construction === 'round' ? 'ROUND DONE' : 'DONE'} <span aria-hidden="true">→</span></span>
+          {ticked < actionable && <small>{actionable - ticked} step{actionable - ticked === 1 ? '' : 's'} not ticked</small>}
         </button>
       </Primary>
       {resolver.sheet}

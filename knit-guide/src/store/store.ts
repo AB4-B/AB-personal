@@ -275,7 +275,15 @@ export const toggleComplete = (id: string, instructionId: string) =>
 
 /** Next actionable instruction that is not just a schedule already handled by a combined row guide. */
 export function nextKnitStep(pat: Pattern, proj: Project, afterId: string) {
-  const covered = buildModel(pat, proj).covered;
+  const model = buildModel(pat, proj);
+  const at = model.list.findIndex((g) => g.ins.id === afterId);
+  if (at >= 0) {
+    // the guided cards in order: stitch patterns that are worked as repeated rounds count as steps too
+    const nxt = model.list.slice(at + 1).find((g) => g.kind === 'steps' || g.kind === 'yoke' || g.kind === 'measured' || g.kind === 'legacy');
+    if (nxt) return nxt.ins;
+    // nothing guided is left; fall back to the old rule so lace charts and trackers still advance
+  }
+  const covered = model.covered;
   let cur = nextActionable(pat, afterId, proj);
   while (cur && covered.has(cur.id)) cur = nextActionable(pat, cur.id, proj);
   return cur;
@@ -594,4 +602,81 @@ export function measuredEventDone(id: string, insId: string) {
     const cur = k.measured[mk] ?? { done: 0, due: false };
     k.measured[mk] = { done: cur.done + 1, due: false };
   });
+}
+
+/** DONE / ROUND DONE inside an instruction that has parts or repeated rounds. Finishing the last one moves on. */
+export function phaseDone(id: string, insId: string) {
+  const proj = useStore.getState().projects[id];
+  const pat = proj && useStore.getState().patterns[proj.patternId];
+  const g = pat && buildModel(pat, proj).byId.get(insId);
+  const parts = g?.tr?.parts;
+  if (!proj || !pat || !parts) return;
+  const cur = proj.knit?.phase?.[insId] ?? { part: 0, rep: 0, idx: 0 };
+  let { part, rep, idx } = cur;
+  const p = parts[part];
+  let finished = false;
+  if (p?.kind === 'repeat') {
+    idx++;
+    if (idx >= p.block.rounds.length) {
+      idx = 0;
+      rep++;
+      if (p.block.times !== undefined && rep >= p.block.times) {
+        rep = 0;
+        part++;
+      }
+    }
+  } else part++;
+  if (part >= parts.length) finished = true;
+  mutate(id, (pr) => {
+    const k = knitOf(pr);
+    k.phase = { ...(k.phase ?? {}), [insId]: finished ? { part: 0, rep: 0, idx: 0 } : { part, rep, idx } };
+  });
+  if (finished) finishAndAdvance(id, insId);
+}
+
+export function phaseBack(id: string, insId: string) {
+  const proj = useStore.getState().projects[id];
+  const pat = proj && useStore.getState().patterns[proj.patternId];
+  const g = pat && buildModel(pat, proj).byId.get(insId);
+  const parts = g?.tr?.parts;
+  if (!proj || !parts) return;
+  let { part, rep, idx } = proj.knit?.phase?.[insId] ?? { part: 0, rep: 0, idx: 0 };
+  if (parts[part]?.kind === 'repeat' && (idx > 0 || rep > 0)) {
+    if (idx > 0) idx--;
+    else {
+      rep--;
+      idx = (parts[part] as { kind: 'repeat'; block: { rounds: unknown[] } }).block.rounds.length - 1;
+    }
+  } else if (part > 0) {
+    part--;
+    const q = parts[part];
+    if (q.kind === 'repeat') {
+      rep = (q.block.times ?? 1) - 1;
+      idx = q.block.rounds.length - 1;
+    } else {
+      rep = 0;
+      idx = 0;
+    }
+  }
+  mutate(id, (pr) => {
+    const k = knitOf(pr);
+    k.phase = { ...(k.phase ?? {}), [insId]: { part, rep, idx } };
+  }, false);
+}
+
+/** "Length reached": leave a repeat that runs until a measurement and go on to the next part. */
+export function phaseSkip(id: string, insId: string) {
+  const proj = useStore.getState().projects[id];
+  const pat = proj && useStore.getState().patterns[proj.patternId];
+  const g = pat && buildModel(pat, proj).byId.get(insId);
+  const parts = g?.tr?.parts;
+  if (!proj || !pat || !parts) return;
+  const cur = proj.knit?.phase?.[insId] ?? { part: 0, rep: 0, idx: 0 };
+  const part = cur.part + 1;
+  const finished = part >= parts.length;
+  mutate(id, (pr) => {
+    const k = knitOf(pr);
+    k.phase = { ...(k.phase ?? {}), [insId]: finished ? { part: 0, rep: 0, idx: 0 } : { part, rep: 0, idx: 0 } };
+  });
+  if (finished) finishAndAdvance(id, insId);
 }

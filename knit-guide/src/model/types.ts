@@ -267,6 +267,8 @@ export interface KnitState {
   measured: Record<string, MeasuredState>;
   /** my own interpretation of an instruction the guide could not translate safely */
   guidanceOverrides: Record<string, { steps: string[]; at: number }>;
+  /** position inside an instruction made of parts / repeated rounds: part, repeat number, round within the repeat (all 0-based) */
+  phase?: Record<string, { part: number; rep: number; idx: number }>;
   /** measurements I recorded (cm), keyed by measurement key */
   measurements: Record<string, { cm: number; at: number }>;
 }

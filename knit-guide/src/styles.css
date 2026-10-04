@@ -368,3 +368,5 @@ input, textarea, select { font-size: 16px; } /* prevents iOS zoom on focus */
 .tile2 b { font-size: 18px; }
 .kprimary { font-size: 19px; white-space: nowrap; }
 .tech { min-height: 36px; font-size: 13px; }
+.knote { list-style: none; color: var(--text-2); font-size: 16px; line-height: 1.4; padding: 2px 6px 2px 8px; }
+.knote.head { font-weight: 650; color: var(--text); font-size: 17px; padding-top: 6px; }
