@@ -116,8 +116,8 @@ input, textarea, select { font-size: 16px; } /* prevents iOS zoom on focus */
 .ins-wrap { scroll-margin-top: 84px; }
 .vfoot .zoomrow { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
 .vfoot .btn.block { max-width: 460px; font-size: 15px; }
-.sec-note { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-top: 1px solid var(--border); background: var(--surface); }
-.ins { position: relative; display: flex; gap: 6px; align-items: flex-start; padding: 6px 6px 6px 4px; border-top: 1px solid var(--border); scroll-margin-top: 90px; scroll-margin-bottom: 150px; }
+.sec-note { display: flex; gap: 8px; align-items: center; padding: 8px 10px; background: var(--surface); }
+.ins { position: relative; margin-top: 2px; display: flex; gap: 6px; align-items: flex-start; padding: 6px 6px 6px 4px; scroll-margin-top: 90px; scroll-margin-bottom: 150px; }
 .ins .check { width: 44px; height: 44px; flex: none; border: 0; background: transparent; display: grid; place-items: center; }
 .ins .check i { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--surface-2); display: block; display: grid; place-items: center; font-style: normal; font-size: 14px; color: #fff; }
 .ins.done .check i { background: var(--success); border-color: var(--success); }
@@ -125,11 +125,11 @@ input, textarea, select { font-size: 16px; } /* prevents iOS zoom on focus */
 .ins .plus { width: 48px; height: 48px; flex: none; border: 0; background: var(--surface); border-radius: var(--radius-sm); font-size: 26px; line-height: 1; color: var(--primary); }
 .ins.info .body { color: var(--text-2); font-size: 16px; }
 .ins.done .body { color: var(--text-2); }
-.ins.current { background: var(--primary-light); border-left: 5px solid var(--primary); }
+.ins.current { background: var(--primary-light); }
 .ins.current .body { font-weight: 500; }
 .now-tag { display: block; width: max-content; background: var(--primary); color: #fff; font-size: 11px; font-weight: 800; letter-spacing: .1em; padding: 2px 8px; border-radius: 99px; margin-bottom: 4px; }
 .ins-wrap { display: flex; flex-direction: column; }
-.live { padding: 0 10px 14px 10px; background: var(--primary-light); border-left: 5px solid var(--primary); display: flex; flex-direction: column; gap: 12px; }
+.live { padding: 0 10px 14px 10px; background: var(--primary-light); display: flex; flex-direction: column; gap: 12px; }
 .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
 .chip { border: 1.5px solid var(--border); background: var(--card); border-radius: 99px; padding: 6px 12px; font-size: 14px; font-weight: 600; min-height: 36px; }
 .chip.ok { border-color: var(--success); color: var(--success); }
@@ -137,7 +137,7 @@ input, textarea, select { font-size: 16px; } /* prevents iOS zoom on focus */
 .size-val { background: var(--primary-light); color: var(--primary); font-weight: 800; padding: 0 5px; border-radius: 6px; }
 .size-bad { background: var(--warning-soft); color: var(--warning-ink); padding: 0 4px; border-radius: 6px; }
 .abbr { display: inline; border: 0; background: transparent; padding: 0; margin: 0; font: inherit; color: inherit; border-bottom: 1.5px dotted var(--secondary); cursor: pointer; font-weight: inherit; }
-.mod { background: var(--secondary-light); border-left: 4px solid var(--secondary); border-radius: 10px; padding: 8px 12px; margin-top: 8px; font-size: 16px; }
+.mod { background: var(--secondary-light); border-radius: 10px; padding: 8px 12px; margin-top: 8px; font-size: 16px; }
 .pat-label { font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--text-2); display: block; margin-bottom: 2px; }
 .pat-label.mine { color: var(--secondary); }
 .pat-label.guide { color: var(--success); }
@@ -189,12 +189,12 @@ input, textarea, select { font-size: 16px; } /* prevents iOS zoom on focus */
 .tracker { background: var(--card); border: 1.5px solid var(--primary); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 10px; }
 .tracker .rowno { font-family: var(--font-head); font-size: 46px; line-height: 1; }
 .tline { border-radius: 14px; padding: 10px 12px; background: var(--surface); display: flex; flex-direction: column; gap: 2px; }
-.tline.do { background: var(--accent-light); border-left: 5px solid var(--accent); }
+.tline.do { background: var(--accent-light); }
 .tline.finished { background: var(--success-soft); }
-.tline.review { background: var(--warning-soft); border-left: 5px solid var(--warning); }
+.tline.review { background: var(--warning-soft); }
 .tline .lbl { font-size: 12px; letter-spacing: .08em; font-weight: 800; text-transform: uppercase; color: var(--text-2); }
 .tline .head { font-weight: 700; font-size: 18px; }
-.tline blockquote { margin: 6px 0 0; padding: 6px 10px; border-left: 4px solid var(--surface-2); background: rgba(255,255,255,.7); border-radius: 8px; font-size: 15px; }
+.tline blockquote { margin: 6px 0 0; padding: 6px 10px; background: rgba(255,255,255,.7); border-radius: 8px; font-size: 15px; }
 .parts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
 .part { font-size: 13px; font-weight: 700; padding: 2px 10px; border-radius: 99px; background: var(--primary-light); color: var(--primary); }
 .part.off { background: var(--surface-2); color: var(--text-2); text-decoration: line-through; }
@@ -220,7 +220,7 @@ input, textarea, select { font-size: 16px; } /* prevents iOS zoom on focus */
 .tabs { display: flex; gap: 6px; overflow-x: auto; padding: 4px 12px 10px; scrollbar-width: none; }
 .tab { flex: none; border: 1.5px solid var(--border); background: var(--card); border-radius: 99px; padding: 8px 16px; font-weight: 700; min-height: 44px; }
 .tab.on { background: var(--primary); color: #fff; border-color: var(--primary); }
-.rv-ins { border-top: 1px solid var(--border); padding: 10px 0; display: flex; flex-direction: column; gap: 8px; }
+.rv-ins { padding: 10px 0; display: flex; flex-direction: column; gap: 8px; }
 .warnbox { background: var(--warning-soft); border: 1px solid var(--warning); color: var(--warning-ink); border-radius: var(--radius-sm); padding: 10px 12px; font-size: 15px; }
 .size-pick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .size-btn { border: 1.5px solid var(--border); background: var(--card); border-radius: var(--radius); padding: 10px 6px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 76px; }
@@ -239,10 +239,10 @@ input, textarea, select { font-size: 16px; } /* prevents iOS zoom on focus */
 .size-line.dim { opacity: .38; }
 .size-line.sel { background: var(--primary-light); border-radius: 6px; font-weight: 700; display: inline-block; padding: 0 4px; }
 .srcline { padding: 1px 6px; border-radius: 6px; }
-.srcline.hit { background: var(--primary-light); border-left: 4px solid var(--primary); }
+.srcline.hit { background: var(--primary-light); }
 .textsrc { flex: 1; overflow: auto; background: #fff; padding: 12px 10px calc(130px + var(--safe-b)); white-space: pre-wrap; font-size: 16px; line-height: 1.5; }
 .review-chip { border: 1.5px solid var(--warning); background: var(--warning-soft); color: var(--warning-ink); border-radius: 99px; font-weight: 800; font-size: 13px; padding: 3px 10px; letter-spacing: .02em; margin: 0 2px; cursor: pointer; }
-.review-box { border-left: 5px solid var(--warning); }
+.review-box { }
 
 
 /* ------------------------------------------------------------ guided knit mode */
@@ -262,21 +262,21 @@ input, textarea, select { font-size: 16px; } /* prevents iOS zoom on focus */
 @keyframes kin { from { opacity: .35; transform: translateY(6px); } }
 
 /* 3. what is special about this row */
-.jobs { background: var(--accent-light); border-left: 4px solid var(--accent); border-radius: var(--radius-sm); padding: var(--sp-3) var(--sp-4); }
+.jobs { background: var(--accent-light); border-radius: var(--radius-sm); padding: var(--sp-3) var(--sp-4); }
 .jobs-h { letter-spacing: .04em; font-size: 15px; color: var(--accent-dark); }
 .jobs ul { margin: 6px 0 0; padding-left: 20px; font-weight: 650; font-size: 17px; }
-.jobs.plain { background: transparent; border-left: 0; padding: 0; color: var(--text-2); font-weight: 500; font-size: 15px; }
+.jobs.plain { background: transparent; padding: 0; color: var(--text-2); font-weight: 500; font-size: 15px; }
 
 /* 4. DO THIS dominates */
 .caps { color: var(--text-2); }
 .ksteps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-3); }
-.kstep { display: flex; gap: var(--sp-3); align-items: flex-start; padding: var(--sp-3) var(--sp-3) var(--sp-3) var(--sp-2); border-radius: var(--radius-sm); border-left: 4px solid transparent; transition: background var(--ease), opacity var(--ease); }
+.kstep { display: flex; gap: var(--sp-3); align-items: flex-start; padding: var(--sp-3) var(--sp-3) var(--sp-3) var(--sp-2); border-radius: var(--radius-sm); transition: background var(--ease), opacity var(--ease); }
 .kt { font-size: var(--fs-step); line-height: 1.38; color: var(--text); }
-.kstep.now { background: var(--primary-light); border-left-color: var(--primary); }
+.kstep.now { background: var(--primary-light); }
 .kstep.now .kt { font-weight: 560; }
 .kstep.done { opacity: .62; }
 .kstep.done .kt { text-decoration: line-through; text-decoration-thickness: 1px; }
-.kstep.rev { background: var(--warning-soft); border-left-color: var(--warning); }
+.kstep.rev { background: var(--warning-soft); }
 .kcheck { flex: none; width: 48px; height: 48px; border-radius: 50%; border: 2px solid var(--primary); background: var(--card); color: var(--primary); font-weight: 750; font-size: 17px; padding: 0; transition: background var(--ease), color var(--ease); }
 .kcheck i { font-style: normal; }
 .kstep.now .kcheck { background: var(--primary); color: #fff; }
@@ -291,7 +291,7 @@ input, textarea, select { font-size: 16px; } /* prevents iOS zoom on focus */
 /* supporting panels */
 .need { background: var(--surface); border-radius: var(--radius-sm); padding: var(--sp-3) var(--sp-4); }
 .need ul { margin: 4px 0 0; padding-left: 20px; }
-.says { background: transparent; border-left: 3px solid var(--border); border-radius: 0; padding: 4px 12px; color: var(--text-2); font-size: 14px; }
+.says { background: transparent; border-radius: 0; padding: 4px 12px; color: var(--text-2); font-size: 14px; }
 .checkpoint { border: 1.5px dashed var(--secondary); border-radius: var(--radius-sm); padding: var(--sp-3) var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-2); background: var(--secondary-light); }
 .checkpoint.ok { border-color: var(--success); border-style: solid; background: var(--success-soft); }
 .measure { background: var(--warning-soft); border: 1px solid var(--warning); border-radius: var(--radius-sm); padding: var(--sp-3) var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-2); }
@@ -322,7 +322,7 @@ input, textarea, select { font-size: 16px; } /* prevents iOS zoom on focus */
 .kcard { display: flex; flex-direction: column; gap: var(--sp-4); animation: kin .2s var(--ease); }
 .dothis { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--sp-4); box-shadow: var(--shadow-1); display: flex; flex-direction: column; gap: var(--sp-3); }
 .dothis h3 { font-size: 24px; color: var(--text); }
-.jobs { background: var(--accent-light); border-left: 0; }
+.jobs { background: var(--accent-light); }
 .jobs-h { font-family: var(--font-head); font-size: 20px; font-weight: 600; letter-spacing: 0; color: var(--text); }
 .jobs ul { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 4px; }
 .jobs li { font-weight: 500; font-size: 17px; display: flex; gap: 10px; align-items: center; }
@@ -354,3 +354,17 @@ input, textarea, select { font-size: 16px; } /* prevents iOS zoom on focus */
 .tip { margin: var(--sp-2) var(--sp-4) 0; background: var(--primary-light); border-radius: var(--radius); padding: var(--sp-4); color: var(--text); }
 .says summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
 .kv { font-size: 15px; }
+
+/* smaller type on the Knit screen */
+.kstep .kt { font-size: 18px; line-height: 1.4; }
+.kstep.now .kt { font-weight: 600; }
+.kcheck { width: 38px; height: 38px; font-size: 15px; }
+.ksec { font-size: 22px; }
+.krow { font-size: 30px; }
+.dothis h3 { font-size: 21px; }
+.jobs-h { font-size: 18px; }
+.jobs li { font-size: 16px; }
+.kv { font-size: 14px; }
+.tile2 b { font-size: 18px; }
+.kprimary { font-size: 19px; white-space: nowrap; }
+.tech { min-height: 36px; font-size: 13px; }
