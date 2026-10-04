@@ -3,6 +3,7 @@ import { NoteCard, NoteComposer } from '../components/Notes';
 import { resumeInfo } from '../components/Summary';
 import { projectFacts } from '../model/facts';
 import { analyzeResolution } from '../model/guide';
+import { gaugeCheck } from '../model/gauge';
 import { findInstruction, hasProgress, sourceLabel } from '../model/helpers';
 import { prefsOf } from '../guidance/flow';
 import { setPrefs, addModification, deleteModification, editModification, renameProject, setPhoto, setSize, setStatus, updateSetup, useStore } from '../store/store';
@@ -34,7 +35,7 @@ function ModCard({ project, mod, pattern }: { project: Project; mod: Modificatio
 }
 
 const FIELDS: [keyof ProjectSetup, string][] = [
-  ['yarn', 'Yarn'], ['colour', 'Colour'], ['needle', 'Needle size'], ['gaugeSts', 'Gauge: stitches / 4"'], ['gaugeRows', 'Gauge: rows / 4"'], ['bodyLength', 'Body length'], ['sleeveLength', 'Sleeve length'],
+  ['yarn', 'Yarn'], ['colour', 'Colour'], ['needle', 'Needle size'], ['gaugeSts', 'My swatch: stitches / 10 cm'], ['gaugeRows', 'My swatch: rows / 10 cm'], ['bodyLength', 'Body length'], ['sleeveLength', 'Sleeve length'],
 ];
 
 function EditSetup({ project, pattern, onClose }: { project: Project; pattern: Pattern; onClose: () => void }) {
@@ -116,6 +117,7 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
 
   const resume = resumeInfo(project, pattern);
   const facts = projectFacts(pattern, project.size);
+  const gc = gaugeCheck(pattern, project);
   const resolution = analyzeResolution(pattern, project.size, project.sizeOverrides ?? {});
 
   return (
@@ -178,10 +180,13 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
             {facts.needles && (<><dt>Pattern needles</dt><dd>{facts.needles}</dd></>)}
             <dt>Pattern gauge</dt><dd>{facts.gauge ?? '—'}</dd>
             {facts.yarn && (<><dt>Yarn required</dt><dd>{facts.yarn}</dd></>)}
-            <dt>My gauge</dt><dd>{project.setup.gaugeSts || project.setup.gaugeRows ? `${project.setup.gaugeSts || '?'} sts × ${project.setup.gaugeRows || '?'} rows / 4"` : 'Not entered'}</dd>
+            <dt>My gauge</dt><dd>{project.setup.gaugeSts || project.setup.gaugeRows ? `${project.setup.gaugeSts || '?'} sts × ${project.setup.gaugeRows || '?'} rows / 10 cm` : 'Not entered'}</dd>
             <dt>Body length</dt><dd>{project.setup.bodyLength || '—'}</dd>
             <dt>Sleeve length</dt><dd>{project.setup.sleeveLength || '—'}</dd>
           </dl>
+          {gc.level === 'warn' && <div className="warnbox review-box" data-testid="gauge-warning"><b>⚠ GAUGE DIFFERS FROM THE PATTERN</b>{gc.lines.map((l, i) => <div key={i}>{l}</div>)}</div>}
+          {gc.level === 'ok' && <div className="done-banner" data-testid="gauge-ok">✓ Swatch matches the pattern gauge</div>}
+          {gc.level === 'none' && <p className="muted small-text" style={{ margin: 0 }} data-testid="gauge-none">{gc.lines[0]}</p>}
           <button className="btn soft" onClick={() => setEditing(true)}>Edit details</button>
         </section>
 

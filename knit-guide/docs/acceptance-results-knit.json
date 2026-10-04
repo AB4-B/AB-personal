@@ -1,5 +1,5 @@
 {
-  "ran": "2026-10-04T13:57:10.687Z",
+  "ran": "2026-10-04T14:15:59.242Z",
   "results": [
     {
       "name": "K0 import the synthetic pattern, size L, start knitting",
@@ -105,6 +105,11 @@
       "name": "GENERAL raglan: repeated kfb rounds show the stitch count and the designer's total as a checkpoint",
       "pass": true,
       "detail": "74 cards"
+    },
+    {
+      "name": "GENERAL cm jacket: swatch gives row ESTIMATES; measuring makes events due; Quick Stop restores",
+      "pass": true,
+      "detail": "ok"
     },
     {
       "name": "FLAX: 19 sizes with names like \"0-6 mo\" and \"Adult XS\" are found; the table fills Project Data in cm",

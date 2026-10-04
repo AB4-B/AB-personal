@@ -333,7 +333,7 @@ const RECOGNIZERS: Rec[] = [
   },
   {
     name: 'stated-count',
-    re: /^= (\d+) stitches\.?$/i,
+    re: /^= (\d+) (?:stitches|sts)\.?$/i,
     run: (m, a) => {
       const k = Number(m[1]);
       step(a, `CHECK: you should now have ${k} stitches.`);
@@ -602,10 +602,10 @@ function evenly(a: Acc, count: number, total: number, flat: boolean, excludeBand
 /* ------------------------------------------------------- general vocabulary */
 
 const NOTE_START =
-  /^(?:note\b|you (?:may|can|will|should)|this is\b|these\b|the (?:\d+ |central )?[a-z ]*(?:markers?|sts|stitches) (?:separate|are|is)|while (?:working|short)|to work\b|throughout the\b|keep (?:the )?bor marker|sleeve sts are placed|on the (?:following|separation) round|select one of|the simpler|an alternative|working the|optional\b|we (?:use|prefer)|for help\b|tip\b|share your\b|we love\b|they\b|double the stitch on|pass the yarn over the needle|bring the yarn between|with yarn on the|this .doubled)/i;
+  /^(?:note\b|you (?:may|can|will|should)|this is\b|these\b|the (?:\d+ |central )?[a-z ]*(?:markers?|sts|stitches) (?:separate|are|is)|while (?:working|short)|to work\b|throughout the\b|keep (?:the )?bor marker|sleeve sts are placed|on the (?:following|separation) round|select one of|the simpler|an alternative|working the|optional\b|we (?:use|prefer)|for help\b|tip\b|remember\b|share your\b|we love\b|they\b|double the stitch on|pass the yarn over the needle|bring the yarn between|with yarn on the|this .doubled)/i;
 
 const HEAD =
-  /^((?:[A-Za-z-]+ ){0,2}(?:rows?|rounds?|rnds?)(?: \d+)?(?: ?\([^)]*\))?|marker set-?up|set-?up(?: round| row)?|shift bor|separation round|neckline increase round)\s*:\s*(.+)$/i;
+  /^((?:[A-Za-z-]+ ){0,2}(?:rows?|rounds?|rnds?)(?: \d+)?(?: ?\([^)]*\))?|continue as follows(?: from [a-z ]+)?|marker set-?up|set-?up(?: round| row)?|shift bor|separation round|neckline increase round)\s*:\s*(.+)$/i;
 
 interface Def {
   kind: 'round' | 'even';
@@ -632,8 +632,11 @@ function setStitches(a: Acc, k: number | undefined) {
   a.ctx.stitches = k;
 }
 
-function applyCounts(a: Acc, r: { delta: number; deltaKnown: boolean; statedTotal?: number; statedChange?: number; startAt?: number; endsEmpty?: boolean }, label: string, w?: Work, checkOnly = false) {
+function applyCounts(a: Acc, r: { delta: number; deltaKnown: boolean; statedTotal?: number; statedChange?: number; startAt?: number; endsEmpty?: boolean; layoutTotal?: number }, label: string, w?: Work, checkOnly = false) {
   const before = r.startAt ?? a.ctx.stitches;
+  if (r.layoutTotal !== undefined && before !== undefined && r.layoutTotal !== before) {
+    a.assumptions.push(`Check ${label}: the parts of this row add up to ${r.layoutTotal} stitches, but you should have ${before}. Recount before you start.`);
+  }
   if (checkOnly) {
     if (r.statedChange !== undefined && r.deltaKnown && r.statedChange !== r.delta) a.assumptions.push(`Check ${label}: the steps change ${r.delta >= 0 ? '+' : ''}${r.delta} stitches, but the pattern says ${r.statedChange >= 0 ? '+' : ''}${r.statedChange}.`);
     return;
@@ -783,6 +786,75 @@ const GENERIC: Rec[] = [
       if (/back and forth|flat|in rows/i.test(m[1])) flatNote(a);
       else if (/round/i.test(m[1])) roundNote(a);
       step(a, `${s.endsWith('.') ? s : `${s}.`}`, { note: true });
+    },
+  },
+  {
+    name: 'markers-in-from-sides',
+    re: /^insert (\d+) markers?(?: in (?:the )?piece)?,? (\d+) sts? in from each side(?: \(([^)]*)\))?$/i,
+    run: (m, a) => {
+      const k = Number(m[2]);
+      const mid = m[3]?.match(/=\s*(\d+) sts?/i);
+      step(a, `Place a marker after counting ${sts(k)} in from the right-hand edge of the row. The marker sits between two stitches.`, { tech: ['markers'] });
+      step(a, `Place the second marker ${sts(k)} in from the left-hand edge.`, { tech: ['markers'] });
+      if (mid) step(a, `The ${mid[1]} stitches between the two markers are the back piece (${m[3].replace(/\s*=.*$/, '').trim() || 'back'}).`, { note: true });
+      if (a.ctx.stitches !== undefined && mid && 2 * k + Number(mid[1]) !== a.ctx.stitches) {
+        a.assumptions.push(`Check: ${k} + ${mid[1]} + ${k} is ${2 * k + Number(mid[1])}, but you should have ${a.ctx.stitches} stitches. Recount before placing the markers.`);
+      }
+    },
+  },
+  {
+    name: 'bind-off-sequence',
+    re: /^bind off for (?:the )?armholes? each side at the beg(?:inning)? of every row as follows:?\s*(.+?)(?: = (\d+) sts)?$/i,
+    run: (m, a) => {
+      let delta = 0;
+      step(a, 'Bind off at the start of every row, on both sides, like this (right-side and wrong-side rows alternate):', { note: true });
+      for (const p of m[1].matchAll(/(\d+) sts? (\d+) times?/gi)) {
+        const n = Number(p[1]);
+        const times = Number(p[2]);
+        if (!times) continue;
+        step(a, `Bind off ${sts(n)} at the start of each of the next ${times * 2} rows (${times} ${times === 1 ? 'time' : 'times'} each side).`, { tech: ['bindoff'] });
+        delta -= n * times * 2;
+      }
+      if (delta === 0) step(a, 'No armhole bind-offs for your size: go straight on.', { note: true });
+      if (m[2]) {
+        a.checkpoint = { expected: Number(m[2]), label: 'after the armhole bind-offs' };
+        if (a.ctx.stitches !== undefined && a.ctx.stitches + delta !== Number(m[2])) a.assumptions.push(`Check: ${a.ctx.stitches} ${delta < 0 ? '−' : '+'} ${Math.abs(delta)} is ${a.ctx.stitches + delta}, but the pattern says ${m[2]}.`);
+        setStitches(a, Number(m[2]));
+      } else if (a.ctx.stitches !== undefined) setStitches(a, a.ctx.stitches + delta);
+    },
+  },
+  {
+    name: 'neckline-bind-off',
+    re: /^bind off (\d+) sts? (?:at|on) (?:the )?neckline on (?:the )?next row(?: = (\d+) sts left on (?:the )?shoulder)?$/i,
+    run: (m, a) => {
+      step(a, `On the next row, bind off ${sts(Number(m[1]))} at the neckline edge.`, { tech: ['bindoff'] });
+      if (m[2]) {
+        a.checkpoint = { expected: Number(m[2]), label: 'stitches left on the shoulder' };
+        setStitches(a, Number(m[2]));
+      }
+    },
+  },
+  {
+    name: 'garter-towards-neckline',
+    re: /^continue with (\d+) garter sts towards (?:the )?neckline$/i,
+    run: (m, a) => {
+      step(a, `Keep the ${sts(Number(m[1]))} next to the neckline in garter stitch (knit every row) as you work on.`, { tech: ['garter'] });
+    },
+  },
+  {
+    name: 'same-as-other-piece',
+    re: /^(?:continue[^.]*? as described for|like) (?:the )?([a-z ]+? piece)(?:,? but (mirrored))?$/i,
+    run: (m, a) => {
+      step(a, `Work this exactly as written for the ${m[1]}${m[2] ? ', but mirrored (left and right swapped)' : ''}.`, { note: true });
+    },
+  },
+  {
+    name: 'all-decreases-complete',
+    re: /^when all dec(?:reases)? are complete,? there are (\d+) sts left on (?:the )?shoulder$/i,
+    run: (m, a) => {
+      step(a, `When all the decreases are done you should have ${m[1]} stitches left on the shoulder.`);
+      a.checkpoint = { expected: Number(m[1]), label: 'stitches left on the shoulder' };
+      setStitches(a, Number(m[1]));
     },
   },
   {

@@ -94,6 +94,8 @@ export function toMetric(input: string): MetricResult {
   t = t.replace(/(\d+(?:\.\d+)?)\s*(?:yards?|yds?)\b/gi, (_m, n: string) => `${Math.round(Number(n) * 0.9144)} m`);
   t = t.replace(/(\d+(?:\.\d+)?)\s*(?:ounces?|oz)\b/gi, (_m, n: string) => `${Math.round(Number(n) * 28.35)} g`);
 
+  // an inch value whose fraction glyph was lost in the PDF leaves a stray mark behind: "every 2 cm- \""
+  t = t.replace(/\b(cm|mm)\s*[-–/]\s*["”″]/g, '$1');
   t = t.replace(/(\d+)\.0(\s?(?:mm|cm|m|g)\b)/g, '$1$2').replace(/\s+([.,;:])/g, '$1').replace(/ {2,}/g, ' ');
   return { text: t, flags };
 }

@@ -7,9 +7,10 @@ import { guideCtxOf } from '../model/helpers';
 import { guideInstruction } from '../model/guide';
 import { DEFAULT_PREFS, type Instruction, type KnitPrefs, type Pattern, type Project, type TrackerSpec } from '../model/types';
 import { buildYokePlan, findMeasuredPlans, planRow, summarize, type MeasuredPlan, type PlannedRow, type PlanItem, type YokePlan } from './plan';
+import { buildTimeline, buttonholeEvents, stitchesAfter, type Timeline } from './timeline';
 import { constructionText, translate, type Construction, type TCtx, type TStep, type Translation } from './translate';
 
-export type GuidanceKind = 'steps' | 'yoke' | 'measured' | 'legacy' | 'info' | 'covered';
+export type GuidanceKind = 'steps' | 'yoke' | 'measured' | 'timeline' | 'legacy' | 'info' | 'covered';
 
 export interface Guidance {
   ins: Instruction;
@@ -19,6 +20,7 @@ export interface Guidance {
   plan?: YokePlan;
   spec?: TrackerSpec;
   measured?: MeasuredPlan;
+  timeline?: Timeline;
   /** decrease/increase round steps for a measured plan */
   eventSteps?: TStep[];
   construction?: Construction;
@@ -95,6 +97,7 @@ function compute(pattern: Pattern, project: Project): GuidanceModel {
     }
   }
 
+  const items0 = items;
   const tipItem = items.find((i) => /^(?:start|begin) \d+ stitches before the marker-?thread/i.test(i.text));
 
   // everything printed before the first cast-on (needles, notions, sizing notes) is background, not a step
@@ -157,6 +160,23 @@ function compute(pattern: Pattern, project: Project): GuidanceModel {
       if (end !== undefined) ctx.stitches = end;
       continue;
     }
+    // Shaping written as lengths ("when piece measures 9 cm dec … and repeat every 1.5 cm a total of 7 times"):
+    // every rule of the section is merged into one list of dated events.
+    if (/^(?:at the same time,?\s+)?when (?:the |your )?[a-z ]+ measures (?:at least |about |approx\.? )?\d/i.test(text) || /\swhen (?:the |your )?[a-z ]+ measures (?:at least |about |approx\.? )?\d/i.test(text)) {
+      const items: { id: string; text: string }[] = [];
+      for (let k = here; k < visible.length && visible[k].sectionId === ins.sectionId; k++) {
+        if (visible[k].kind === 'tracker' || covered.has(visible[k].id)) break;
+        items.push({ id: visible[k].id, text: k === here ? text : guided.get(visible[k].id) ?? '' });
+      }
+      const tl = buildTimeline(items, ctx.stitches, visible.some((v) => v.sectionId === ins.sectionId && /\bremember buttonholes\b/i.test(guided.get(v.id) ?? '')) ? buttonholeEvents(items0) : []);
+      if (tl && tl.usedIds[0] === ins.id) {
+        for (const id of tl.usedIds.slice(1)) joined.add(id);
+        const finalStitches = stitchesAfter(tl, tl.events.map((e) => e.id)) ?? [...tl.events].reverse().find((e) => e.statedAfter !== undefined)?.statedAfter;
+        list.push({ ...base, kind: 'timeline', timeline: tl, construction: ctx.construction ?? 'flat', stitchesBefore: ctx.stitches, stitchesAfter: finalStitches, review: tl.events.some((e) => e.review) });
+        ctx.stitches = finalStitches;
+        continue;
+      }
+    }
     // a piece that is cast on and then finished "after a row from the wrong side" is worked flat
     const nxt = visible[visible.indexOf(ins) + 1];
     const hintFlat = !ctx.construction && nxt && nxt.sectionId === ins.sectionId && /wrong side|right side|back and forth/i.test(guided.get(nxt.id) ?? '');
@@ -183,6 +203,7 @@ function compute(pattern: Pattern, project: Project): GuidanceModel {
 
 export const rowKey = (trackerId: string, row: number) => `${trackerId}:r${row}`;
 export const measuredKey = (insId: string) => `${insId}:m`;
+export const timelineKey = (insId: string) => `${insId}:tlcm`;
 export const bhKey = (trackerId: string) => `${trackerId}:bh`;
 
 export function yokeRow(g: Guidance, project: Project): PlannedRow | undefined {
@@ -208,6 +229,7 @@ export function currentPart(g: Guidance, project: Project) {
 
 /** Key under which the ticked steps of the current card are saved. */
 export function stepsKeyFor(g: Guidance, project: Project): string {
+  if (g.kind === 'timeline') return `${g.ins.id}:tl`;
   const cp = currentPart(g, project);
   if (cp) return cp.part.kind === 'repeat' ? `${g.ins.id}:p${cp.pos.part}:r${cp.pos.rep}:i${cp.pos.idx}` : `${g.ins.id}:p${cp.pos.part}`;
   if (g.kind === 'yoke' && g.spec) return rowKey(g.spec.id, project.trackers[g.spec.id]?.row ?? 1);
@@ -245,6 +267,16 @@ export function describeKnit(pattern: Pattern, project: Project): { headline: st
       stitches = r.before;
       for (const t of r.tracking) tracking.push(`${t.label}: ${t.done} of ${t.total}`);
     }
+  } else if (g.kind === 'timeline' && g.timeline) {
+    const done = project.knit?.eventsDone?.[g.ins.id] ?? [];
+    const cm = project.knit?.measurements?.[timelineKey(g.ins.id)]?.cm;
+    const due = g.timeline.events.filter((e) => !done.includes(e.id) && cm !== undefined && e.cm <= cm);
+    const nextEv = g.timeline.events.find((e) => !done.includes(e.id));
+    headline.push('Measuring');
+    if (cm !== undefined) headline.push(`${cm} cm so far`);
+    next = due[0] ? `${due[0].label} now (due at ${due[0].cm} cm)` : nextEv ? `Keep knitting until ${nextEv.cm} cm: ${nextEv.label}` : 'All steps for this part are done';
+    tracking.push(`Events done: ${done.length} of ${g.timeline.events.length}`);
+    stitches = stitchesAfter(g.timeline, done) ?? g.stitchesBefore;
   } else {
     const c = constructionText(g.construction, prefs);
     if (c) headline.push(c.title.charAt(0) + c.title.slice(1).toLowerCase());

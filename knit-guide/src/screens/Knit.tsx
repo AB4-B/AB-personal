@@ -7,17 +7,19 @@ import { StitchCounterCard } from '../components/Counters';
 import { useResolver } from '../components/Resolver';
 import { TrackerCard } from '../components/TrackerCard';
 import { constructionText } from '../guidance/translate';
-import { buildModel, currentPart, resolveCurrent, stepsKeyFor, yokeRow, bhKey, measuredKey, prefsOf } from '../guidance/flow';
+import { buildModel, currentPart, timelineKey, resolveCurrent, stepsKeyFor, yokeRow, bhKey, measuredKey, prefsOf } from '../guidance/flow';
 import type { Guidance } from '../guidance/flow';
 import { dueCm } from '../guidance/plan';
 import { TECHNIQUES } from '../guidance/techniques';
 import type { TStep } from '../guidance/translate';
 import { projectFacts } from '../model/facts';
+import { cmFor, myGauge, rowsFor, spacingRows } from '../model/gauge';
+import { stitchesAfter } from '../guidance/timeline';
 import { guideInstruction, guidePlain } from '../model/guide';
 import { findInstruction, formatWhen, guideCtxOf } from '../model/helpers';
 import type { Pattern, Project } from '../model/types';
 import {
-  addStitchCounter, attachStopNote, finishAndAdvance, knitFromHere, measuredEventDone, phaseBack, phaseDone, phaseSkip, quickStop, recordMeasurement, saveCheckpoint, saveGuidanceOverride,
+  addStitchCounter, attachStopNote, finishAndAdvance, knitFromHere, measuredEventDone, phaseBack, phaseDone, phaseSkip, timelineEvent, quickStop, recordMeasurement, saveCheckpoint, saveGuidanceOverride,
   setMeasuredDue, setTrackerFirst, setTrackerRow, tickStep, useStore, yokeRowBack, yokeRowDone,
 } from '../store/store';
 import { IconPdf, IconStop, Sheet, ToastHost, TopBar, toast } from '../ui/common';
@@ -395,6 +397,115 @@ function StepsCard({ g, project, pattern, onTech, onNote }: { g: Guidance; proje
   );
 }
 
+
+/** Shaping written as lengths: all rules of the section in one list; the knitter measures, the app shows what is due. */
+function TimelineCard({ g, project, pattern, onTech }: { g: Guidance; project: Project; pattern: Pattern; onTech: (id: string) => void }) {
+  const tl = g.timeline!;
+  const gctx = guideCtxOf(pattern, project);
+  const done = project.knit?.eventsDone?.[g.ins.id] ?? [];
+  const mkey = timelineKey(g.ins.id);
+  const saved = project.knit?.measurements?.[mkey];
+  const [v, setV] = useState(saved ? String(saved.cm) : '');
+  const [rowIn, setRowIn] = useState('');
+  const mine = myGauge(project);
+  const cm = saved?.cm;
+  const left = tl.events.filter((e) => !done.includes(e.id));
+  const due = left.filter((e) => cm !== undefined && e.cm <= cm);
+  const upcoming = left.filter((e) => cm === undefined || e.cm > cm).slice(0, 4);
+  const now = stitchesAfter(tl, done);
+  const est = (x: number) => rowsFor(x, mine.rows);
+  const lastStated = [...tl.events].reverse().find((e) => done.includes(e.id) && e.statedAfter !== undefined);
+  const finish = () => { const n = finishAndAdvance(project.id, g.ins.id); if (!n) toast('Pattern finished'); };
+  const first = due[0];
+  return (
+    <>
+      <Where pattern={pattern} project={project} title={g.title} />
+      <ContextPanel items={[{ icon: 'size', label: 'Size', value: project.size }, { icon: g.construction === 'round' ? 'round' : 'flat', label: 'Working', value: workingLabel(g.construction) }, !!project.setup.needle && { icon: 'needle', label: 'Needle', value: project.setup.needle }, now !== undefined && { icon: 'sts', label: 'Stitches now', value: String(now) }]} />
+      <div className="kcard" key={`${g.ins.id}${done.length}`} data-testid="knit-card" data-kind="timeline">
+        <div className="measure" data-testid="timeline-measure">
+          <span className="caps">MEASURE YOUR PIECE</span>
+          <div className="kt">Lay it flat and measure from the cast-on edge. The pattern shapes by length, so you tell the app how long the piece is.</div>
+          <div className="row">
+            <input className="input" inputMode="decimal" placeholder="length so far, cm" aria-label="Piece length in cm" value={v} onChange={(e) => setV(e.target.value.replace(/[^\d.]/g, ''))} data-testid="timeline-cm" />
+            <button className="btn" disabled={!v} data-testid="timeline-save" onClick={() => recordMeasurement(project.id, mkey, Number(v))}>SAVE</button>
+          </div>
+          {mine.rows && (
+            <div className="row">
+              <input className="input" inputMode="numeric" placeholder="or: the row I am on" aria-label="Row number I am on" value={rowIn} onChange={(e) => setRowIn(e.target.value.replace(/\D/g, ''))} data-testid="timeline-row" />
+              <button className="btn" disabled={!rowIn} data-testid="timeline-row-save" onClick={() => { const c = cmFor(Number(rowIn), mine.rows); if (c !== undefined) { setV(String(c)); recordMeasurement(project.id, mkey, c); } }}>USE ROW</button>
+            </div>
+          )}
+          <div className="small-text muted" data-testid="timeline-gauge-note">
+            {mine.rows ? `Rows are ESTIMATES from your swatch (${mine.rows} rows per 10 cm). A ruler always wins.` : 'Add your swatch (rows per 10 cm) in Edit details to see which row each length falls on.'}
+          </div>
+        </div>
+
+        {due.length > 0 ? (
+          due.map((e) => (
+            <section className="dothis" key={e.id} data-testid="due-event">
+              <h3>{e.label} now</h3>
+              <div className="small-text muted">Due at {e.cm} cm · {e.rule}{e.of > 1 ? ` · ${e.nth} of ${e.of}` : ''}{est(e.cm) !== undefined ? ` · about row ${est(e.cm)} (estimate)` : ''}</div>
+              <StepList steps={e.steps} keyId={`${g.ins.id}:ev:${e.id}`} project={project} onTech={onTech} />
+              <button className="btn primary block" data-testid="event-done" onClick={() => timelineEvent(project.id, g.ins.id, e.id, true)}>{e.label.toUpperCase()} DONE</button>
+            </section>
+          ))
+        ) : left.length > 0 ? (
+          <div className="jobs plain" data-testid="timeline-nothing-due">Nothing is due yet. Keep knitting in pattern{cm !== undefined && upcoming[0] ? ` until the piece measures ${upcoming[0].cm} cm` : ''}.</div>
+        ) : (
+          <div className="done-banner" data-testid="timeline-complete">✓ ALL {tl.events.length} STEPS FOR THIS PART ARE DONE</div>
+        )}
+
+        {upcoming.length > 0 && (
+          <section className="dothis" data-testid="timeline-upcoming">
+            <h3>Coming up</h3>
+            <ul className="upc">
+              {upcoming.map((e) => (
+                <li key={e.id} data-testid="upcoming-event">
+                  <b>{e.label}</b> at <b>{e.cm} cm</b>
+                  <span className="muted"> · {e.rule}{e.of > 1 ? ` · ${e.nth} of ${e.of}` : ''}</span>
+                  {cm !== undefined && est(e.cm - cm) !== undefined && e.cm > cm ? <div className="small-text muted">about {est(e.cm - cm)} more rows (estimate)</div> : est(e.cm) !== undefined ? <div className="small-text muted">about row {est(e.cm)} (estimate)</div> : null}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {lastStated && <Checkpoint project={project} cpKey={`${g.ins.id}:ev:${lastStated.id}:cp`} expected={lastStated.statedAfter!} label="count given by the pattern" />}
+
+        <div className="track" data-testid="knit-tracking">
+          <div className="tiles">
+            <div className="tile2" data-testid="track-line"><span className="tl">Steps done</span> <b>{done.length} of {tl.events.length}</b></div>
+            {now !== undefined && <div className="tile2"><span className="tl">Stitches now</span> <b data-testid="timeline-stitches">{now}</b></div>}
+            {cm !== undefined && <div className="tile2"><span className="tl">Piece measures</span> <b>{cm} cm</b></div>}
+            {mine.rows && cm !== undefined && <div className="tile2"><span className="tl">About row</span> <b>{est(cm)}</b></div>}
+          </div>
+        </div>
+        <Why lines={['This part of the pattern is written in centimetres, so what to do next depends on how long your piece is, not on a row count. Your own swatch is only used to estimate rows.']} />
+        {tl.events.some((e) => e.of > 1) && mine.rows && (
+          <details className="assume"><summary>How often, in rows (estimate)</summary>
+            {[...new Map(tl.events.filter((e) => e.of > 1).map((e) => [e.rule, e])).values()].map((e) => {
+              const gap = tl.events.filter((x) => x.rule === e.rule)[1];
+              const every = gap ? Math.round((gap.cm - e.cm) * 10) / 10 : undefined;
+              return <p key={e.rule} className="small-text" style={{ margin: '4px 0' }}>{e.rule}: {every ? spacingRows(every, mine.rows) : ''}</p>;
+            })}
+          </details>
+        )}
+        <PatternSays text={tl.usedIds.map((id) => findInstruction(pattern, id)).filter(Boolean).map((i) => guidePlain(i!, gctx)).join('\n\n')} pattern={pattern} />
+        {tl.events.some((e) => e.review) && <div className="warnbox review-box" data-testid="timeline-review"><b>⚠ GUIDANCE NEEDS REVIEW</b> Some steps are shown in the designer's own words. The length they happen at is still worked out.</div>}
+      </div>
+      <Primary>
+        {first ? (
+          <button className="btn primary kprimary" data-testid="step-done" onClick={() => timelineEvent(project.id, g.ins.id, first.id, true)}><span>{first.label.toUpperCase()} DONE <span aria-hidden="true">→</span></span></button>
+        ) : left.length === 0 ? (
+          <button className="btn primary kprimary" data-testid="step-done" onClick={finish}><span>DONE <span aria-hidden="true">→</span></span></button>
+        ) : (
+          <button className="btn kprimary" disabled data-testid="step-wait"><span>KEEP KNITTING</span></button>
+        )}
+      </Primary>
+    </>
+  );
+}
+
 function MeasuredCard({ g, project, pattern, onTech }: { g: Guidance; project: Project; pattern: Pattern; onTech: (id: string) => void }) {
   const mp = g.measured!;
   const mk = measuredKey(g.ins.id);
@@ -497,6 +608,8 @@ export function Knit({ projectId }: { projectId: string }) {
           <div className="empty" data-testid="knit-empty">Nothing to knit here. Open the full pattern to pick a place.</div>
         ) : g.kind === 'yoke' && yokeRow(g, project) ? (
           <YokeCard g={g} project={project} pattern={pattern} onTech={setTech} />
+        ) : g.kind === 'timeline' && g.timeline ? (
+          <TimelineCard g={g} project={project} pattern={pattern} onTech={setTech} />
         ) : g.kind === 'measured' ? (
           <MeasuredCard g={g} project={project} pattern={pattern} onTech={setTech} />
         ) : g.kind === 'legacy' && g.spec ? (

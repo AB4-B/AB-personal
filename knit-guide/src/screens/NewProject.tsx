@@ -318,10 +318,10 @@ function Setup({ pattern, draft, size, setSize, overrides, setOverrides, busy, o
           <Field label="Colour" id="sc"><input id="sc" className="input" value={setup.colour} onChange={set('colour')} /></Field>
           <Field label="Needle size" id="sn"><input id="sn" className="input" value={setup.needle} onChange={set('needle')} /></Field>
           <div className="row">
-            <Field label='My stitches / 4"'><input className="input" inputMode="decimal" value={setup.gaugeSts} onChange={set('gaugeSts')} aria-label="My gauge stitches" /></Field>
-            <Field label='My rows / 4"'><input className="input" inputMode="decimal" value={setup.gaugeRows} onChange={set('gaugeRows')} aria-label="My gauge rows" /></Field>
+            <Field label="My stitches / 10 cm"><input className="input" inputMode="decimal" value={setup.gaugeSts} onChange={set('gaugeSts')} aria-label="My gauge stitches" /></Field>
+            <Field label="My rows / 10 cm"><input className="input" inputMode="decimal" value={setup.gaugeRows} onChange={set('gaugeRows')} aria-label="My gauge rows" /></Field>
           </div>
-          <span className="tiny muted">Pattern gauge: {projectFacts(pattern, size || pattern.sizes[0] || '').gauge ?? 'not found'}</span>
+          <span className="tiny muted">From your swatch (10 x 10 cm). Used for row ESTIMATES only. Pattern gauge: {projectFacts(pattern, size || pattern.sizes[0] || '').gauge ?? 'not found'}</span>
         </section>
 
         <section className="card stack">

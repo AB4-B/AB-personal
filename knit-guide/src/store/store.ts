@@ -680,3 +680,13 @@ export function phaseSkip(id: string, insId: string) {
   });
   if (finished) finishAndAdvance(id, insId);
 }
+
+/** Tick a measurement-timeline event as done (or undo it). */
+export const timelineEvent = (id: string, insId: string, eventId: string, on: boolean) =>
+  mutate(id, (p) => {
+    const k = knitOf(p);
+    const cur = new Set(k.eventsDone?.[insId] ?? []);
+    if (on) cur.add(eventId);
+    else cur.delete(eventId);
+    k.eventsDone = { ...(k.eventsDone ?? {}), [insId]: [...cur] };
+  });

@@ -454,6 +454,35 @@ await test('GENERAL raglan: repeated kfb rounds show the stitch count and the de
   return `${seen.length} cards`;
 });
 
+await test('GENERAL cm jacket: swatch gives row ESTIMATES; measuring makes events due; Quick Stop restores', async () => {
+  const text = readFileSync('fixtures/synthetic-jacket-cm.txt', 'utf8');
+  await page.goto(BASE); await page.waitForSelector('.hero');
+  await tid('new-project').click(); await page.waitForSelector('[data-testid=paste-input]');
+  await tid('paste-input').fill(text); await tid('paste-read').click(); await page.waitForSelector('[data-testid=review]');
+  await tid('review-continue').click(); await page.waitForSelector('[data-testid=setup]');
+  await tid('size-One size').click();
+  await page.getByLabel('My gauge stitches').fill('22');
+  await page.getByLabel('My gauge rows').fill('30');
+  await tid('project-name').fill('Jacket cm');
+  await tid('create-project').click(); await page.waitForSelector('[data-testid=open-instructions]');
+  await tid('start-knitting').click(); await page.waitForSelector('[data-testid=knit-card]');
+  for (let i = 0; i < 20 && (await tid('knit-card').getAttribute('data-kind')) !== 'timeline'; i++) { await tid('step-done').click(); await page.waitForTimeout(60); }
+  assert((await tid('knit-card').getAttribute('data-kind')) === 'timeline', 'timeline card never reached');
+  assert(/ESTIMATES from your swatch \(30 rows per 10 cm\)/.test(await tid('timeline-gauge-note').innerText()), 'estimates are labelled');
+  assert(await tid('timeline-nothing-due').count(), 'nothing is due before measuring');
+  await tid('timeline-cm').fill('6'); await tid('timeline-save').click(); await page.waitForTimeout(150);
+  assert(await tid('due-event').count() === 1, 'the 6 cm decrease is due');
+  const due = (await tid('due-event').innerText()).replace(/\s+/g, ' ');
+  assert(/about row 18 \(estimate\)/.test(due), `row estimate labelled: ${due}`);
+  await tid('quick-stop').click(); await page.waitForSelector('[data-testid=stop-saved]');
+  await tid('stop-done').click(); await page.waitForTimeout(300);
+  await page.reload(); await page.waitForSelector('[data-testid=knit-card]');
+  assert(await tid('due-event').count() === 1, 'due event restored after reload');
+  await tid('event-done').click(); await page.waitForTimeout(150);
+  assert(await tid('due-event').count() === 0 && /1 of /.test(await tid('track-line').innerText()), 'event ticked off');
+  return 'ok';
+});
+
 /* ------------------- Flax (Tin Can Knits): 19 sizes, two columns, size subsets. Local fixture only. */
 const FLAX = 'fixtures/flax-worsted.pdf';
 if (existsSync(FLAX)) {

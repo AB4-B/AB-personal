@@ -269,6 +269,8 @@ export interface KnitState {
   guidanceOverrides: Record<string, { steps: string[]; at: number }>;
   /** position inside an instruction made of parts / repeated rounds: part, repeat number, round within the repeat (all 0-based) */
   phase?: Record<string, { part: number; rep: number; idx: number }>;
+  /** measurement-timeline events I have done, per instruction */
+  eventsDone?: Record<string, string[]>;
   /** measurements I recorded (cm), keyed by measurement key */
   measurements: Record<string, { cm: number; at: number }>;
 }

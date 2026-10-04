@@ -28,6 +28,8 @@ export interface OpResult {
   startAt?: number;
   /** every stitch was bound off: the count is no longer known */
   endsEmpty?: boolean;
+  /** total of the stitches a row layout covers ("9 garter sts, M.1 on the next 190 sts, 9 garter sts") */
+  layoutTotal?: number;
   turns: number;
   markersPlaced: number;
 }
@@ -35,6 +37,8 @@ export interface OpResult {
 interface AtomOut {
   steps: string[];
   note?: boolean;
+  /** stitches this part of a row layout covers */
+  layout?: number;
   reset?: number;
   empties?: boolean;
   delta?: number;
@@ -154,6 +158,58 @@ function atomCore(raw: string): AtomOut | null {
   m = t.match(/^(?:then )?proceed to (.+)$/);
   if (m) return { steps: [`Next you will move on to: ${m[1]}.`], note: true };
 
+
+  // a row laid out in sections: "9 garter sts (= front band), M.1 on the next 190 sts, 9 garter sts"
+  m = t.match(/^(?:finish with )?(?:the )?(?:first |next |last )?(\d+) (garter|stockinette|rib|reverse stockinette) sts?(?: \(([^)]*)\))?$/);
+  if (m) {
+    const label = m[3] ? ` (${m[3].replace(/^=\s*/, '')})` : '';
+    return { steps: [`Work ${sts(Number(m[1]))} in ${m[2]} stitch${label}.`], layout: Number(m[1]) };
+  }
+  m = t.match(/^([a-z]\.\d+|[a-z]+ ?\d+|chart [a-z0-9]+) on the next (\d+) sts?(?: \(([^)]*)\))?$/);
+  if (m) {
+    const name = m[1].toUpperCase();
+    return { steps: [`Work the next ${sts(Number(m[2]))} in pattern ${name} (the ${name} rows are in the pattern section of the original).`], layout: Number(m[2]) };
+  }
+  m = t.match(/^(stockinette|garter|rib|reverse stockinette) (?:stitch|st|sts) on the next (\d+) sts?(?: \(([^)]*)\))?$/);
+  if (m) return { steps: [`Work the next ${sts(Number(m[2]))} in ${m[1]} stitch.`], layout: Number(m[2]) };
+  m = t.match(/^(?:continue|work) (?:in )?(stockinette|garter)(?: stitch| st| sts)?$/);
+  if (m) return { steps: [`Work in ${m[1]} stitch from now on.`] };
+
+
+  m = t.match(/^work (\d+) (rows?|rounds?)(?: in)? garter(?: sts?| stitch)?$/);
+  if (m) return { steps: [`Knit every stitch for ${m[1]} ${m[2]}.${/row/.test(m[2]) ? ' Turn your work at the end of each row.' : ''}`], delta: 0 };
+  m = t.match(/^continue in ([a-z]\.\d+)(?: with (\d+) edge sts? (?:on )?each side)?$/);
+  if (m) return { steps: [`Work in pattern ${m[1].toUpperCase()}${m[2] ? `, with ${sts(Number(m[2]))} at each side as edge stitches (worked plain)` : ''}.`] };
+  m = t.match(/^work (garter|stockinette)(?: stitch| sts?)? on the (?:middle|centre) (\d+) sts?(?: with (?:the )?remaining sts as before)?$/);
+  if (m) return { steps: [`Work the middle ${sts(Number(m[2]))} in ${m[1]} stitch and keep the other stitches as you have been working them.`] };
+  m = t.match(/^bind off the (?:middle|centre) (\d+) sts?(?: for (?:the )?neck(?:line)?)?$/);
+  if (m) return { steps: [`Bind off the middle ${sts(Number(m[1]))} for the neck.`], delta: -Number(m[1]) };
+
+  // shaping at the sides: "dec 1 st on each side of both markers", "inc 1 st each side"
+  m = t.match(/^(dec|inc|decrease|increase) (\d+) sts?( on each side of both markers| on each side of (?:the )?markers?| each side of both markers| each side| on each side| on both sides| at each end| at both ends)?(?: as follows| from rs)?$/);
+  if (m) {
+    const dec = /^dec/.test(m[1]);
+    const k = Number(m[2]);
+    const where = m[3]?.trim() ?? '';
+    const both = /markers/.test(where);
+    const sides = both ? 4 : where ? 2 : 1;
+    const verb = dec ? 'Decrease' : 'Increase';
+    const how = dec ? ' Use k2tog where the decrease should lean right and ssk where it should lean left (your pattern may give a different method).' : ' Use a make-1 (M1L / M1R) or a yarn over worked twisted on the next row, unless your pattern names a method.';
+    const text = both
+      ? `${verb} ${sts(k)} on each side of BOTH markers: ${sts(k * 4)} in the row (one before and one after each marker).`
+      : where
+        ? `${verb} ${sts(k)} at each side: ${sts(k * 2)} in the row, inside the edge stitches.`
+        : `${verb} ${sts(k)}.`;
+    return { steps: [text + how], delta: (dec ? -1 : 1) * k * sides };
+  }
+  m = t.match(/^bind off (\d+) sts?( on each side of both markers| each side of both markers| on each side| each side)?(?: for (?:the )?armhole)?$/);
+  if (m && m[2]) {
+    const k = Number(m[1]);
+    const both = /markers/.test(m[2]);
+    return { steps: [both ? `Bind off ${sts(k)} on each side of BOTH markers (${sts(k * 4)} in all: ${sts(k)} before and after each marker) for the armholes.` : `Bind off ${sts(k)} at each side for the armhole.`], delta: -k * (both ? 4 : 2) };
+  }
+  if (/^(?:now )?complete each (?:piece|shoulder) separately$/.test(t)) return { steps: ['From here each piece is knitted separately (back and each front).'], note: true };
+
   // turning, joining, structure
   if (/^turn(?: (?:your )?work)?$/.test(t)) return { steps: ['Turn your work.'], turn: true };
   if (/^join(?: for| to)?(?: working| work)?(?: in the round)?(?: without twisting)?(?:,? (?:being careful )?(?:not to|to avoid) twist(?:ing)?(?: the sts)?)?$/.test(t) && /round|twist/.test(t)) {
@@ -222,7 +278,7 @@ function splitTop(s: string): string[] {
     .flatMap((p) =>
       p
         .replace(/\bpick up and knit\b/gi, 'pick up AND_KNIT')
-        .split(/\s+and\s+(?=(?:join|place|pm|sm|remove|turn|stop|knit|purl|k\d|p\d|work|slip|sl\b|cast|bind|pick))/i)
+        .split(/\s+and\s+(?=(?:join|continue|place|pm|sm|remove|turn|stop|knit|purl|k\d|p\d|work|slip|sl\b|cast|bind|pick|finish|dec|inc|now|complete|m\.\d))/i)
         .map((x) => x.replace(/AND_KNIT/g, 'and knit')),
     )
     .map((p) => p.trim())
@@ -296,6 +352,7 @@ function parse(text: string): Node[] | null {
 /* -------------------------------------------------------------- evaluate */
 
 interface Acc {
+  layoutTotal?: number;
   startAt?: number;
   empties?: boolean;
   steps: OpStep[];
@@ -313,6 +370,7 @@ function run(nodes: Node[], acc: Acc, indent = false): boolean {
       if (!a) return false;
       for (const s of a.steps) acc.steps.push({ note: a.note, text: indent ? `• ${s}` : s, tech: techniquesIn(s).concat(/kfb|pfb/i.test(n.text) ? ['kfb'] : [], /^ssp$/i.test(clean(n.text)) ? ['ssp'] : []) });
       if (a.reset !== undefined && acc.startAt === undefined && acc.steps.length === a.steps.length) acc.startAt = a.reset;
+      if (a.layout !== undefined) acc.layoutTotal = (acc.layoutTotal ?? 0) + a.layout;
       if (a.empties) acc.empties = true;
       if (a.delta === undefined && a.empties) acc.known = true;
       else if (a.delta === undefined && /^(?:bind|cast) off$/i.test(clean(n.text))) acc.known = false;
@@ -330,6 +388,7 @@ function run(nodes: Node[], acc: Acc, indent = false): boolean {
       if (n.times) acc.delta += inner.delta * n.times;
       else if (inner.delta !== 0) acc.known = false;
       acc.known = acc.known && inner.known;
+      if (inner.layoutTotal !== undefined) acc.layoutTotal = (acc.layoutTotal ?? 0) + inner.layoutTotal * (n.times ?? 1);
       acc.join = acc.join || inner.join;
       acc.turns += inner.turns * (n.times ?? 1);
       acc.markers += inner.markers * (n.times ?? 1);
@@ -364,5 +423,5 @@ export function interpretSequence(textIn: string): OpResult | null {
   if (!nodes || !nodes.length) return null;
   const acc: Acc = { steps: [], delta: 0, known: true, join: false, turns: 0, markers: 0 };
   if (!run(nodes, acc)) return null;
-  return { startAt: acc.startAt, endsEmpty: acc.empties, steps: acc.steps, delta: acc.delta, deltaKnown: acc.known, statedTotal: total, statedChange: change, joinRound: acc.join, turns: acc.turns, markersPlaced: acc.markers };
+  return { layoutTotal: acc.layoutTotal, startAt: acc.startAt, endsEmpty: acc.empties, steps: acc.steps, delta: acc.delta, deltaKnown: acc.known, statedTotal: total, statedChange: change, joinRound: acc.join, turns: acc.turns, markersPlaced: acc.markers };
 }
