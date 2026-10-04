@@ -456,7 +456,11 @@ export function parsePattern(pages: RawPage[], opts: ParseOptions): Pattern {
         continue;
       }
       const hh = isHeadingBlock(b);
-      if (hh && hh.level === 1) {
+      // no heading at all? the first "Cast on / Work / Row 1" line starts the instructions
+      const instrStart = /^(cast on|provisional cast on|work|knit|row\s*\d|round\s*\d|set-?up row)\b/i.test(first);
+      const plainHeading = abbrMode && b.lines.length === 1 && /^[A-Z][A-Za-z ]{2,30}:?$/.test(first) && !/[–—-]/.test(first);
+      const startsBody = (hh && hh.level === 1) || (!pendingLabel && (instrStart || plainHeading));
+      if (startsBody) {
         pendingLabel = undefined;
         abbrMode = false;
         zone = 'body';
@@ -551,8 +555,9 @@ export function parsePattern(pages: RawPage[], opts: ParseOptions): Pattern {
     }
 
     const h = isHeadingBlock(b);
-    if (h && !(h.level === 2 && !curL1)) {
-      addSection(h.title, h.level, b.page);
+    if (h) {
+      // a sub-heading with no main heading above it becomes a main heading
+      addSection(h.title, h.level === 2 && !curL1 ? 1 : h.level, b.page);
       continue;
     }
     if (/^(enjoy!?|pattern was updated.*)$/i.test(b.text)) continue;
