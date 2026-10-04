@@ -122,38 +122,137 @@ export async function extractPdf(
   const bodyFont = [...fontChars.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
 
   for (const s of staged) {
-    const sorted = [...s.items].sort((a, b) => b.y - a.y || a.x - b.x);
-    const rows: (typeof sorted)[] = [];
-    for (const it of sorted) {
-      const row = rows.find((r) => Math.abs(r[0].y - it.y) < Math.max(2, it.h * 0.3));
-      if (row) row.push(it);
-      else rows.push([it]);
-    }
-    const lines: RawLine[] = rows.map((r) => {
-      r.sort((a, b) => a.x - b.x);
-      let text = '';
-      let prevEnd = 0;
-      r.forEach((it, i) => {
-        if (i > 0) {
-          const gap = it.x - prevEnd;
-          const needsSpace = gap > it.h * 0.18 && !text.endsWith(' ') && !it.str.startsWith(' ');
-          if (needsSpace) text += ' ';
-        }
-        text += it.str;
-        prevEnd = it.x + it.w;
-      });
-      return {
-        page: s.page,
-        y: r[0].y,
-        x: r[0].x,
-        size: Math.max(...r.map((i) => i.h)),
-        text: text.replace(/\s+/g, ' ').trim(),
-        emphasis: r.every((i) => i.font !== bodyFont),
-      };
-    });
-    lines.sort((a, b) => b.y - a.y);
+    const lines = readingOrder(s.items, s.width, s.page, bodyFont);
     pages.push({ page: s.page, width: s.width, height: s.height, lines, images: s.images });
     onProgress?.(doc.numPages + s.page, doc.numPages * 2);
   }
   return pages;
+}
+
+/* ------------------------------------------------------------ reading order */
+
+interface Item { str: string; x: number; y: number; w: number; h: number; font: string }
+
+function groupRows(items: Item[]): Item[][] {
+  const sorted = [...items].sort((a, b) => b.y - a.y || a.x - b.x);
+  const rows: Item[][] = [];
+  for (const it of sorted) {
+    const row = rows.find((r) => Math.abs(r[0].y - it.y) < Math.max(2, it.h * 0.3));
+    if (row) row.push(it);
+    else rows.push([it]);
+  }
+  for (const r of rows) r.sort((a, b) => a.x - b.x);
+  return rows;
+}
+
+function rowToLine(r: Item[], page: number, bodyFont: string | undefined): RawLine {
+  let text = '';
+  let prevEnd = 0;
+  r.forEach((it, i) => {
+    if (i > 0) {
+      const gap = it.x - prevEnd;
+      const needsSpace = gap > it.h * 0.18 && !text.endsWith(' ') && !it.str.startsWith(' ');
+      if (needsSpace) text += ' ';
+    }
+    text += it.str;
+    prevEnd = it.x + it.w;
+  });
+  return {
+    page,
+    y: r[0].y,
+    x: r[0].x,
+    size: Math.max(...r.map((i) => i.h)),
+    text: text.replace(/\s+/g, ' ').trim(),
+    emphasis: r.every((i) => i.font !== bodyFont),
+  };
+}
+
+/**
+ * Two-column pages (Tin Can Knits and many others) would otherwise be read straight across both
+ * columns. A gutter is found only when many rows have long text on both sides of the same x;
+ * rows that straddle it or look like a table (many short cells) stay full width and separate zones.
+ * Within a zone the left column is read top to bottom, then the right column.
+ */
+export function readingOrder(items: Item[], pageWidth: number, page: number, bodyFont: string | undefined): RawLine[] {
+  // lone letters on a diagram ("a", "b", "c" callouts) are not text; table rows keep theirs ("S", "M")
+  const rows = groupRows(items)
+    .map((r) => {
+      if (r.length >= 6) return r;
+      const keep = (it: Item, k: number) =>
+        !/^[A-Za-z]$/.test(it.str.trim()) ||
+        (k > 0 && it.x - (r[k - 1].x + r[k - 1].w) < 40) ||
+        (r[k + 1] !== undefined && r[k + 1].x - (it.x + it.w) < 15);
+      return r.filter(keep);
+    })
+    .filter((r) => r.length > 0);
+  const plain = () => rows.map((r) => rowToLine(r, page, bodyFont)).sort((a, b) => b.y - a.y);
+  if (rows.length < 10) return plain();
+
+  const isTable = (r: Item[]) => {
+    if (r.length < 6) return false;
+    const lens = r.map((i) => i.str.trim().length).sort((a, b) => a - b);
+    return lens[Math.floor(lens.length / 2)] <= 7;
+  };
+  // a right-hand column shows up as many lines starting at the same x in the middle of the page,
+  // with nothing from the left side running into it
+  const prose = rows.filter((r) => !isTable(r));
+  let best = { n: 0, at: 0 };
+  for (let c = Math.ceil(pageWidth * 0.38); c <= pageWidth * 0.66; c++) {
+    const n = prose.filter((r) => r.some((it) => it.x >= c && it.x <= c + 12 && it.str.trim().length >= 3)).length;
+    if (n > best.n) best = { n, at: c };
+  }
+  ((globalThis as any).__dbg ??= []).push(['cand', page, rows.length, prose.length, best]);
+  if (best.n < 5) return plain();
+  // the column's real left edge: the leftmost start inside the winning window
+  const g = Math.min(...prose.flatMap((r) => r.filter((it) => it.x >= best.at - 12 && it.x <= best.at + 12 && it.str.trim().length >= 3 && it.x > pageWidth * 0.36).map((it) => it.x)), best.at);
+  const crossing = prose.reduce((n, r) => n + r.filter((i) => i.str.trim().length >= 4 && i.x < g - 4 && i.x + i.w > g - 1).length, 0);
+  (globalThis as any).__dbg.push(['cols', page, g, prose.reduce((n, r) => n + r.filter((i) => i.str.trim().length >= 4 && i.x < g - 4 && i.x + i.w > g - 1).length, 0)]);
+  const leftRows = prose.filter((r) => r.some((i) => i.x < g - 4)).length;
+  if (crossing > Math.max(2, prose.length * 0.04) || leftRows < 6 || (best.n < 7 && crossing > 0)) return plain();
+
+  const straddles = (r: Item[]) => r.some((i) => i.x < g - 4 && i.x + i.w > g - 1);
+
+  const out: RawLine[] = [];
+  let zone: Item[][] = [];
+  const flush = () => {
+    if (!zone.length) return;
+    const side = (pick: (i: Item) => boolean, firstBreak: boolean) => {
+      const ls: RawLine[] = [];
+      for (const r of zone) {
+        const part = r.filter(pick);
+        if (part.length) ls.push(rowToLine(part, page, bodyFont));
+      }
+      // a column made only of short scattered labels is a diagram, not text
+      const short = ls.filter((l) => l.text.split(/\s+/).length <= 4).length;
+      const xs = new Set(ls.map((l) => Math.round(l.x / 12)));
+      if (ls.length >= 6 && short / ls.length >= 0.7 && xs.size >= 5) return [];
+      if (ls.length && firstBreak) ls[0] = { ...ls[0], breakBefore: true };
+      return ls;
+    };
+    out.push(...side((i) => i.x < g - 4, true), ...side((i) => i.x >= g - 4, true));
+    zone = [];
+  };
+  for (const r of rows) {
+    if (straddles(r) || isTable(r)) {
+      flush();
+      out.push({ ...rowToLine(r, page, bodyFont), breakBefore: true });
+    } else zone.push(r);
+  }
+  flush();
+  return dropDiagramLabels(out);
+}
+
+/** Short isolated labels printed on diagrams ("sleeve sts on hold", "garter panel") are not instructions. */
+function dropDiagramLabels(lines: RawLine[]): RawLine[] {
+  const body = lines.map((l) => l.size).sort((a, b) => a - b)[Math.floor(lines.length / 2)] ?? 10;
+  return lines.filter((l, i) => {
+    const words = l.text.split(/\s+/).length;
+    if (/^[A-Za-z]$/.test(l.text)) return false; // a lone letter is a diagram callout
+    if (words > 3 || /[.:;]$/.test(l.text) || l.emphasis || l.size > body * 1.15) return true;
+    if (!/^[a-z0-9’'/ -]+$/.test(l.text) || /\d/.test(l.text) && !/^[a-z ]+$/.test(l.text)) return true;
+    const prev = lines[i - 1];
+    const next = lines[i + 1];
+    const far = (a?: RawLine) => !a || Math.abs(a.y - l.y) > body * 2.6 || a.x < l.x - 40 || a.x > l.x + 40;
+    return !(far(prev) && far(next));
+  });
 }

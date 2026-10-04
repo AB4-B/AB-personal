@@ -1,5 +1,5 @@
 {
-  "ran": "2026-10-04T12:47:20.137Z",
+  "ran": "2026-10-04T13:25:39.521Z",
   "results": [
     {
       "name": "K0 import the synthetic pattern, size L, start knitting",
@@ -85,6 +85,16 @@
       "name": "DROPS 244-8 (local only), size L: the whole pattern can be walked in Knit mode; sizes/metric hold",
       "pass": true,
       "detail": "107 cards (106 iterations), 0 needing review"
+    },
+    {
+      "name": "FLAX: 19 sizes with names like \"0-6 mo\" and \"Adult XS\" are found; the table fills Project Data in cm",
+      "pass": true,
+      "detail": "chest 106.5 cm, yarn 1095 m"
+    },
+    {
+      "name": "FLAX size L: only L values, scoped XL-only rounds left out; XL shows them",
+      "pass": true,
+      "detail": "L guide resolved; XL-only block hidden"
     },
     {
       "name": "T20 offline: the Knit screen still opens after the first load (PWA)",

@@ -93,6 +93,9 @@ function compute(pattern: Pattern, project: Project): GuidanceModel {
 
   const tipItem = items.find((i) => /^(?:start|begin) \d+ stitches before the marker-?thread/i.test(i.text));
 
+  // everything printed before the first cast-on (needles, notions, sizing notes) is background, not a step
+  const startAt = visible.findIndex((i) => i.kind === 'action' && /\bcast(?:ing)? on\b/i.test(guided.get(i.id) ?? ''));
+  const background = new Set(startAt > 0 ? visible.slice(0, startAt).map((i) => i.id) : []);
   const list: Guidance[] = [];
   const ctx: TCtx = { prefs, sectionTitle: '' };
   for (const ins of visible) {
@@ -117,7 +120,7 @@ function compute(pattern: Pattern, project: Project): GuidanceModel {
       list.push({ ...base, kind: 'covered' });
       continue;
     }
-    if (ins.kind === 'info' || ins.kind === 'stitch-pattern' || /overview/i.test(title)) {
+    if (ins.kind === 'info' || ins.kind === 'stitch-pattern' || /overview/i.test(title) || background.has(ins.id)) {
       list.push({ ...base, kind: 'info' });
       continue;
     }

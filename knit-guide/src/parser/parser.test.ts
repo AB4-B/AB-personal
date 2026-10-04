@@ -1,6 +1,10 @@
 import { existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { findSizeGroups, resolveText } from '../model/size';
+import { findSizeGroups, parseSizeList, resolveText } from '../model/size';
+import { readingOrder } from './extract';
+import { applyScopes } from './scope';
+import { parseSizeTable } from './sizetable';
+import type { Instruction } from '../model/types';
 import { detectSuggestions } from './detect';
 import type { Pattern } from '../model/types';
 
@@ -193,5 +197,74 @@ describe.skipIf(!existsSync(PASTE))('copy-paste parser: DROPS No Nonsense Cardig
     const ins = p.instructions.find((i) => /2-1-1-1-5/.test(i.text))!;
     expect(ins).toBeDefined();
     expect(resolveText(ins.text, p.sizes, 0)).toBe(ins.text);
+  });
+});
+
+describe('size lists with names that contain spaces and hyphens', () => {
+  it('reads "0-6 mo (6-12 mo, 1-2 yrs, Adult XS, S, M). Sizes listed in this order."', () => {
+    expect(parseSizeList('0-6 mo (6-12 mo, 1-2 yrs, Adult XS, S, M). Sizes listed in this order unless otherwise noted. See table.')).toEqual(['0-6 mo', '6-12 mo', '1-2 yrs', 'XS', 'S', 'M']);
+  });
+  it('still reads the older styles', () => {
+    expect(parseSizeList('S - M - L - XL')).toEqual(['S', 'M', 'L', 'XL']);
+    expect(parseSizeList('S [M, L, XL, 2X, 3X]')).toEqual(['S', 'M', 'L', 'XL', '2X', '3X']);
+  });
+});
+
+describe('size scopes inside a section', () => {
+  const sizes = ['S', 'M', 'L', 'XL', 'XXL', '3XL'];
+  const ins = (id: string, text: string, sectionId = 's1'): Instruction => ({ id, sectionId, kind: 'action', text, source: { page: 1, lines: [text], imageIds: [] } });
+  it('"Sizes XL (XXL, 3XL) only:" scopes what follows until the section ends', () => {
+    const out = applyScopes([ins('a', 'Sizes XL (XXL, 3XL) only:'), ins('b', 'Work 2 (3, 4) times.'), ins('c', 'Work even.', 's2')], sizes);
+    expect(out[0].scopeMarker).toBe(true);
+    expect(out[1].appliesTo).toEqual(['XL', 'XXL', '3XL']);
+    expect(out[2].appliesTo).toBeUndefined();
+  });
+  it('an inline marker scopes only its own sentence; "All sizes:" resets', () => {
+    const out = applyScopes([ins('a', 'XXL (3XL): k0 (2), [k9 (4), k2tog] to end All sizes: Change to smaller needles.')], sizes);
+    expect(out.map((o) => [o.text, o.appliesTo?.join('/')])).toEqual([
+      ['k0 (2), [k9 (4), k2tog] to end', 'XXL/3XL'],
+      ['Change to smaller needles.', undefined],
+    ]);
+  });
+  it('a scoped sentence ends at its closing bracket before a new capitalised sentence', () => {
+    const out = applyScopes([ins('a', '3XL (4XL): [k8, k2tog] around [54 sts] Change to smaller needles.')], sizes.concat('4XL'));
+    expect(out[0].text).toBe('[k8, k2tog] around [54 sts]');
+    expect(out[1].appliesTo).toBeUndefined();
+  });
+  it('a range "Sizes S to L:" is read in the pattern order', () => {
+    const out = applyScopes([ins('a', 'Sizes S to L: proceed to the next part.')], sizes);
+    expect(out[0].appliesTo).toEqual(['S', 'M', 'L']);
+  });
+});
+
+describe('printed sizing table', () => {
+  it('reads one value per column and converts yards to metres', () => {
+    const sizes = ['S', 'M', 'L'];
+    const text = 'a - chest circumference b1 - short sleeve length b2 - long sleeve Size a b1 b2 c1 c1 S 34” 3” 12” 880 980 M 38” 3” 12” 1000 1160 L 42” 4” 13” 1200 1380 * Yardages';
+    const r = parseSizeTable(text, [], sizes, 1);
+    expect(r.measurements.map((m) => m.label)).toEqual(['Chest circumference', 'Short sleeve length', 'Long sleeve', 'C1', 'Yarn for c1 length (long sleeves)']);
+    expect(r.measurements[0].inches).toEqual(['34', '38', '42']);
+  });
+  it('is not used when a size row is missing', () => {
+    expect(parseSizeTable('Size a b1 b2 b3 c1 S 34” 3” 4” 5” 6 M 38” 3” 4” 5” 6', [], ['S', 'M', 'L'], 1).measurements).toEqual([]);
+  });
+});
+
+describe('two-column pages', () => {
+  const it2 = (str: string, x: number, y: number) => ({ str, x, y, w: str.length * 5, h: 10, font: 'f1' });
+  const items = [] as ReturnType<typeof it2>[];
+  for (let r = 0; r < 12; r++) {
+    items.push(it2(`left column line ${r} with text`, 50, 700 - r * 14));
+    items.push(it2(`right column line ${r} with text`, 330, 700 - r * 14));
+  }
+  it('reads the whole left column, then the right column', () => {
+    const lines = readingOrder(items, 612, 1, 'f1');
+    expect(lines.slice(0, 12).every((l) => l.text.startsWith('left'))).toBe(true);
+    expect(lines.slice(12).every((l) => l.text.startsWith('right'))).toBe(true);
+  });
+  it('leaves a one-column page alone', () => {
+    const single = items.filter((i) => i.x < 100);
+    const lines = readingOrder(single, 612, 1, 'f1');
+    expect(lines.map((l) => l.text)).toEqual(single.map((i) => i.str));
   });
 });

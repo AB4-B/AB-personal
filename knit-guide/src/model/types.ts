@@ -57,6 +57,8 @@ export interface Measurement {
   raw: string;
   inches?: string[];
   cm?: string[];
+  /** metres per size (yardage tables printed in yards are converted when read) */
+  m?: string[];
   page: number;
 }
 
@@ -130,6 +132,12 @@ export interface Instruction {
   };
   stitchPatternId?: string;
   trackerId?: string;
+  /** Written for only some sizes ("Sizes XL (XXL, 3XL) only:"): the sizes, in the pattern's order */
+  appliesTo?: string[];
+  /** A bare "Sizes XL only:" line: it only sets the scope for what follows and is not shown in the guide */
+  scopeMarker?: boolean;
+  /** Part of a printed sizing table or its legend: read into Project Data, not shown as a knitting step */
+  tableRow?: boolean;
   /** Detected-counter suggestions the user dismissed in review (keyed by evidence text) */
   ignoredSuggestions?: string[];
   /** True when the app generated this item (it is not designer text) */

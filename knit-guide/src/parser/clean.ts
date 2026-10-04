@@ -47,7 +47,7 @@ export const isCapsText = (s: string) => {
 
 /** Known field labels are left alone so the field parser sees them. */
 const LABEL_PREFIX =
-  /^(sizes?|finished measurements?|measurements?|materials?|yarn|needles?|gauge|tension|knitting gauge|buttons?|notions|skills|techniques|abbreviations?|difficulty)$/i;
+  /^(sizes?|sizing|suggested needles|finished measurements?|measurements?|materials?|yarn|needles?|gauge|tension|knitting gauge|buttons?|notions|skills|techniques|abbreviations?|difficulty)$/i;
 
 function splitCapsHeading(l: RawLine): RawLine[] {
   const m = l.text.match(/^([A-Z0-9][A-Za-z0-9 ,.&/()'–—-]{1,90}?):\s*(.*)$/);
@@ -57,6 +57,8 @@ function splitCapsHeading(l: RawLine): RawLine[] {
   if (!isCapsText(prefix) || LABEL_PREFIX.test(prefix.trim())) return [l];
   // "SIZE S: 8, 16, 24 ..." is a data row, not a heading
   if (/^SIZES?\b/.test(prefix) && rest) return [l];
+  // "XXL (3XL, 4XL): k0 (0, 2), ..." scopes the sentence to some sizes; it is not a section heading
+  if (/^(?:\d*X{0,3}[SML]|\d+X)\b.*\(.*\)$/.test(prefix.trim())) return [l];
   // "NOTE: …", "TIP: …" and "DROPS BUTTONS NO. 537: 4 items" are text, not headings
   if (/^(NOTES?|TIPS?|REMEMBER|IMPORTANT|WARNING)$/.test(prefix.trim()) || /^\d/.test(rest)) return [l];
   const head: RawLine = { ...l, text: prefix.trim(), emphasis: true, breakBefore: true };
@@ -71,16 +73,18 @@ export function dropPageFurniture(pages: RawPage[]): RawPage[] {
     (seen.get(k) ?? seen.set(k, new Set()).get(k)!).add(p.page);
   }
   const need = Math.max(2, Math.ceil(pages.length * 0.6));
+  const needMargin = Math.max(2, Math.ceil(pages.length * 0.4));
   return pages.map((p) => ({
     ...p,
     lines: p.lines.filter((l) => {
       const pagesWith = seen.get(norm(l.text))?.size ?? 0;
-      return !(pages.length >= 3 && pagesWith >= need && l.text.length < 140 && (l.y < 60 || l.y > p.height - 60 || /page|https?:/i.test(l.text)));
+      const margin = l.y < 50 || l.y > p.height - 50;
+      return !(pages.length >= 3 && l.text.length < 140 && ((pagesWith >= need && (l.y < 60 || l.y > p.height - 60 || /page|https?:/i.test(l.text))) || (margin && pagesWith >= needMargin)));
     }),
   }));
 }
 
-export function cleanLines(input: RawLine[]): RawLine[] {
+export function cleanLines(input: RawLine[], opts: { dedupe?: boolean } = {}): RawLine[] {
   const out: RawLine[] = [];
   const seenLong = new Set<string>();
   let breakNext = false;
@@ -92,12 +96,12 @@ export function cleanLines(input: RawLine[]): RawLine[] {
     if (NOISE.some((r) => r.test(t))) { breakNext = true; continue; }
     // web pages repeat the same long banner line many times
     const key = t.toLowerCase();
-    if (t.length > 40) {
+    if (t.length > 40 && opts.dedupe) {
       if (seenLong.has(key)) continue;
       seenLong.add(key);
     }
     // labels glued to the line above ("Size: …", "Finished measurements:") start their own block
-    const isLabel = /^(sizes?\s*:|(finished measurements?|measurements?|materials?|yarn|needles?|gauge|tension|knitting gauge|buttons?|notions|skills|techniques|abbreviations?|difficulty)[^:]{0,30}:)/i.test(t);
+    const isLabel = /^(sizes?\s*:|sizing\s*:|suggested needles\s*:|(finished measurements?|measurements?|materials?|yarn|needles?|gauge|tension|knitting gauge|buttons?|notions|skills|techniques|abbreviations?|difficulty)[^:]{0,30}:)/i.test(t);
     const line = breakNext || isLabel ? { ...l, breakBefore: true } : l;
     breakNext = false;
     out.push(...splitCapsHeading(line));

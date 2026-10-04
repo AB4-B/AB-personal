@@ -1,7 +1,7 @@
 // Guided Knit mode acceptance (spec tests 1-20). Uses the committed SYNTHETIC pattern only
 // (fixtures/synthetic-yoke-jacket.txt). Nothing here depends on a copyrighted pattern.
 import { spawn } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { chromium } from 'playwright-core';
 
 const OUT = 'docs/screenshots';
@@ -349,7 +349,6 @@ await test('T15 ambiguous size values show SIZE VALUE NEEDS REVIEW; T16 an ambig
 });
 
 /* ------------------------------- DROPS 244-8 (local fixture only, never committed) */
-import { existsSync } from 'node:fs';
 const DROPS = 'fixtures/drops-244-8-pasted.txt';
 if (existsSync(DROPS)) {
   await test('DROPS 244-8 (local only), size L: the whole pattern can be walked in Knit mode; sizes/metric hold', async () => {
@@ -363,6 +362,49 @@ if (existsSync(DROPS)) {
     { const re = /\binch(es)?\b|\d\s?"|[¼½¾⅜⅝⅞](?!\s?(?:cm|mm))|\bUS\s?\d/; assert(!re.test(joined), `imperial/US leaked: ${joined.match(new RegExp('.{50}(' + re.source + ').{30}'))?.[0]}`); }
     assert(/Magic Loop/.test(joined), 'sleeve in the round should use Magic Loop');
     return `${seen.length} cards (${guard} iterations), ${reviewSeen} needing review`;
+  });
+}
+
+/* ------------------- Flax (Tin Can Knits): 19 sizes, two columns, size subsets. Local fixture only. */
+const FLAX = 'fixtures/flax-worsted.pdf';
+if (existsSync(FLAX)) {
+  const openFlax = async (size) => {
+    await page.goto(BASE); await page.waitForSelector('.hero');
+    await tid('new-project').click();
+    await page.setInputFiles('[data-testid=pdf-input]', FLAX);
+    await page.waitForSelector('[data-testid=review]', { timeout: 120000 });
+    return size;
+  };
+  await test('FLAX: 19 sizes with names like "0-6 mo" and "Adult XS" are found; the table fills Project Data in cm', async () => {
+    await openFlax();
+    const sizes = await tid('sizes-input').inputValue();
+    assert(sizes === '0-6 mo, 6-12 mo, 1-2 yrs, 2-4 yrs, 4-6 yrs, 6-8 yrs, 8-10 yrs, XS, S, SM, M, ML, L, XL, XXL, 3XL, 4XL, 5XL, 6XL', `sizes: ${sizes}`);
+    await tid('review-continue').click(); await page.waitForSelector('[data-testid=setup]');
+    assert((await page.locator('[data-testid=size-pick] button').count()) === 19, 'nineteen size buttons');
+    await tid('size-L').click();
+    const res = (await tid('size-resolution').innerText()).replace(/\s+/g, ' ');
+    assert(/✓ \d+ size-dependent values resolved/.test(res) && !/need review/.test(res), res);
+    await tid('create-project').click(); await page.waitForSelector('[data-testid=open-instructions]');
+    const d = (await page.locator('.card').first().innerText()).replace(/\s+/g, ' ');
+    assert(/106\.5 cm/.test(d) && /1095 m/.test(d) && !/["”]|\binch/i.test(d), `project data: ${d.slice(0, 300)}`);
+    return 'chest 106.5 cm, yarn 1095 m';
+  });
+  await test('FLAX size L: only L values, scoped XL-only rounds left out; XL shows them', async () => {
+    await tid('start-knitting').click(); await page.waitForSelector('[data-testid=knit-card]');
+    const seenL = [];
+    for (let i = 0; i < 60; i++) { seenL.push(await cardText()); const k = await kind(); if (k !== 'steps') break; await tid('step-done').click(); await page.waitForTimeout(40); }
+    const L = seenL.join('\n');
+    assert(/cast on 90 sts/.test(L), `L cast-on: ${L.slice(0, 300)}`);
+    for (const re of sizeLists) assert(!re.test(L), `size list leaked: ${L.match(re)?.[0]}`);
+    // outline text for all instructions at L must not contain the XL-only rounds
+    await tid('to-outline').click(); await page.waitForSelector('[data-testid=outline]');
+    const expand = async () => { for (let k = 0; k < 5; k++) { const c = page.locator('.sec-head[aria-expanded=false]'); const n = await c.count(); if (!n) break; for (let j = 0; j < n; j++) await c.first().click().catch(() => {}); } };
+    await expand();
+    const outL = (await page.locator('[data-testid=outline]').innerText()).replace(/\s+/g, ' ');
+    assert(!/Round 3: \[kfb/.test(outL), 'XL-only Round 3 must be hidden at size L');
+    assert(/Work in pattern .* until yoke measures at least 20\.5 cm/.test(outL) || /yoke measures at least 2\d(\.\d)? cm/.test(outL), 'yoke depth in cm for L');
+    assert(!/\d+(?:\s?[-–]\s?\d+){5,}/.test(outL), 'no long multi-size number sequence in the L guide');
+    return 'L guide resolved; XL-only block hidden';
   });
 }
 

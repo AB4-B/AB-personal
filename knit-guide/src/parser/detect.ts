@@ -107,9 +107,9 @@ export function detectSuggestions(text: string, sizeCount: number): Suggestion[]
 }
 
 /** Size-group mismatches inside one instruction text -> review reasons. */
-export function sizeMismatchReasons(text: string, sizeCount: number): string[] {
+export function sizeMismatchReasons(text: string, sizeCount: number, scopeLen?: number): string[] {
   if (sizeCount === 0) return [];
-  return findSizeGroups(text, sizeCount)
+  return findSizeGroups(text, sizeCount, scopeLen)
     .filter((g) => !g.matchesSizes)
     .map(
       (g) =>

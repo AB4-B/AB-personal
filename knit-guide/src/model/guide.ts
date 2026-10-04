@@ -54,13 +54,13 @@ export function sectionOf(pattern: Pattern, ins: Instruction): Section | undefin
 export function listSizesFor(pattern: Pattern, ins: Instruction): string[] {
   const sec = sectionOf(pattern, ins);
   const parent = sec?.parentId ? pattern.sections.find((s) => s.id === sec.parentId) : undefined;
-  return sec?.appliesTo ?? parent?.appliesTo ?? pattern.sizes;
+  return ins.appliesTo ?? sec?.appliesTo ?? parent?.appliesTo ?? pattern.sizes;
 }
 
 export function appliesToSize(pattern: Pattern, ins: Instruction, size: string): boolean {
   const sec = sectionOf(pattern, ins);
   const parent = sec?.parentId ? pattern.sections.find((s) => s.id === sec.parentId) : undefined;
-  const lists = [sec?.appliesTo, parent?.appliesTo].filter(Boolean) as string[][];
+  const lists = [ins.appliesTo, sec?.appliesTo, parent?.appliesTo].filter(Boolean) as string[][];
   return lists.every((l) => l.includes(size));
 }
 
@@ -91,7 +91,7 @@ export function groupsFor(pattern: Pattern, ins: Instruction): SizeGroup[] {
 export function guideInstruction(ins: Instruction, ctx: GuideCtx): Guided {
   const { pattern, size, overrides } = ctx;
   const empty: Guided = { hidden: true, parts: [], plain: '', review: [], resolved: 0, overridden: [], measurementFlags: [] };
-  if (!appliesToSize(pattern, ins, size)) return empty;
+  if (ins.scopeMarker || ins.tableRow || !appliesToSize(pattern, ins, size)) return empty;
 
   let text = ins.text;
 

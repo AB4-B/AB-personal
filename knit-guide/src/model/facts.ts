@@ -50,6 +50,7 @@ export function projectFacts(p: Pattern, size: string): Facts {
   const measurements = p.measurements.map((m) => {
     let value: string | undefined;
     let flag: string | undefined;
+    if (m.m?.[idx]) return { label: m.label, value: `${m.m[idx]} m`, flag: undefined };
     const cm = m.cm?.[idx];
     const inch = m.inches?.[idx];
     if (cm && /^\d/.test(cm)) {

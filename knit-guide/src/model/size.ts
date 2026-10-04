@@ -101,10 +101,24 @@ export function resolveText(text: string, sizes: string[], sizeIndex: number): s
     .join('');
 }
 
-/** "S [M, L, XL, 2X, 3X]" -> ["S","M","L","XL","2X","3X"] */
+/**
+ * "S [M, L, XL, 2X, 3X]" -> ["S","M","L","XL","2X","3X"]
+ * "0-6 mo (6-12 mo, 1-2 yrs, Adult XS, S, M). Sizes listed in this order." -> names that contain spaces and hyphens
+ */
 export function parseSizeList(s: string): string[] {
-  return s
-    .replace(/^[:\s]+/, '')
+  let t = s.replace(/^[:\s]+/, '');
+  if (t.includes(',')) {
+    // a comma list: names may contain spaces and hyphens; anything after the closing bracket's full stop is prose
+    const cut = t.match(/^[^.]*?[)\]]\s*\.(?:\s|$)/) ?? t.match(/^[^.]*?\.(?:\s|$)/);
+    if (cut) t = cut[0].replace(/\.\s*$/, '');
+    return t
+      .replace(/[\[(]/g, ',')
+      .replace(/[\])]/g, '')
+      .split(',')
+      .map((x) => x.replace(/^\s*(?:adult|child|kids?|women'?s|men'?s)\s+/i, '').replace(/\s+/g, ' ').trim())
+      .filter((x) => x && !/^and$/i.test(x));
+  }
+  return t
     .split(/\s+[-–—]\s+|[\s,\[\]()]+/)
     .map((x) => x.trim())
     .filter((x) => x && !/^[-–—&]$|^and$/i.test(x));

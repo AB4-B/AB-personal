@@ -21,6 +21,8 @@ import {
   type StitchPattern,
 } from '../model/types';
 import { cleanLines, dropPageFurniture, isCapsText, textToPages } from './clean';
+import { applyScopes } from './scope';
+import { parseSizeTable } from './sizetable';
 import { detectTrackers, flagUnmodelledSimultaneous, sizeMismatchReasons } from './detect';
 import type { RawImage, RawLine, RawPage } from './extract';
 
@@ -114,7 +116,7 @@ function buildBlocks(lines: RawLine[]): Block[] {
         newBlock = !cont;
       } else {
         const pitch = pitchByPage.get(l.page) ?? 12;
-        newBlock = prev.y - l.y > pitch * 1.45 || l.emphasis !== prev.emphasis;
+        newBlock = prev.y - l.y > pitch * 1.45 || l.y > prev.y + 2 || l.emphasis !== prev.emphasis;
       }
     }
     if (newBlock) {
@@ -135,7 +137,7 @@ function buildBlocks(lines: RawLine[]): Block[] {
 
 const ROW_LINE = /^(Rows?|Rounds?|Rnds?)\s*(\d+)\s*(?:\(([A-Za-z]{2})\))?\s*[:.]\s*(.*)$/i;
 const LABEL_RE =
-  /^(?<label>sizes?|finished\s+measurements?|measurements?|materials?|yarn|needles?|gauge|tension|knitting\s+gauge|buttons?|notions|skills(?:\s+required)?(?:\s*\/\s*techniques\s+used)?|techniques(?:\s+used)?|abbreviations?|difficulty(?:\s+level)?)(?:\s*:\s*(?<rest>.*)|\s*$)/i;
+  /^(?<label>sizes?|sizing|suggested\s+needles|finished\s+measurements?|measurements?|materials?|yarn|needles?|gauge|tension|knitting\s+gauge|buttons?|notions|skills(?:\s+required)?(?:\s*\/\s*techniques\s+used)?|techniques(?:\s+used)?|abbreviations?|difficulty(?:\s+level)?)(?:\s*:\s*(?<rest>.*)|\s*$)/i;
 
 export { splitAtSentences };
 
@@ -290,6 +292,8 @@ export function parsePattern(pages: RawPage[], opts: ParseOptions): Pattern {
     dropPageFurniture(pages)
       .flatMap((p) => p.lines)
       .filter((l) => !JUNK.some((r) => r.test(l.text)) && !captionLines.has(l)),
+    // web pages repeat banners; a PDF repeats genuine pattern lines ("kfb, k1, SM] 4 times") and must keep them
+    { dedupe: (opts.sourceType ?? 'pdf') === 'text' },
   );
   const blocks = buildBlocks(lines);
 
@@ -379,7 +383,7 @@ export function parsePattern(pages: RawPage[], opts: ParseOptions): Pattern {
   const applyField = (label: string, restAll: string[], page: number, append = false) => {
     abbrMode = false;
     const join = (prev: string) => (append && prev ? `${prev} ${restAll.join(' ')}` : restAll.join(' '));
-    if (/^sizes?$/.test(label)) {
+    if (/^(sizes?|size)$/.test(label)) {
       sizes = parseSizeList(restAll.join(' '));
     } else if (/finished|measurements?/.test(label)) {
       for (const line of restAll) {
@@ -450,7 +454,7 @@ export function parsePattern(pages: RawPage[], opts: ParseOptions): Pattern {
       }
       const lm = first.match(LABEL_RE);
       if (lm?.groups) {
-        const label = lm.groups.label.toLowerCase().replace(/\s+/g, ' ');
+        const label = lm.groups.label.toLowerCase().replace(/\s+/g, ' ').replace(/^suggested /, '').replace(/^sizing$/, 'size');
         const restFirst = (lm.groups.rest ?? '').trim();
         const restAll = [restFirst, ...b.lines.slice(1).map((l) => l.text)].filter(Boolean);
         // a label alone on its line ("YARN:") takes the following blocks too, for list-like fields
@@ -608,8 +612,26 @@ export function parsePattern(pages: RawPage[], opts: ParseOptions): Pattern {
   if (!sizeCount) warn('needs-review', 'No size list found. Add sizes in the review screen.');
   if (!gaugeRaw) warn('needs-review', 'No gauge found.');
 
+  {
+    const scoped = applyScopes(instructions, sizes);
+    instructions.splice(0, instructions.length, ...scoped);
+  }
+  if (!measurements.length) {
+    const tbl = parseSizeTable(allLines.map((l) => l.text).join(' '), instructions, sizes, allLines[0]?.page ?? 1);
+    measurements.push(...tbl.measurements);
+    if (tbl.measurements.length) {
+      // the printed table now lives in Project Data: drop its lines and the headings made of table rows
+      const drop = new Set(tbl.tableInstructionIds);
+      for (let k = instructions.length - 1; k >= 0; k--) if (drop.has(instructions[k].id)) instructions.splice(k, 1);
+      const isTableTitle = (t: string) => /^(child sizes|adult sizes|yardage\*?|sizing table:?)$/i.test(t.trim()) || new RegExp(`^(?:${sizes.map((z) => z.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\s+\\d+(?:\\.\\d+)?[”"]?\\s`).test(t.trim());
+      for (let k = sections.length - 1; k >= 0; k--) {
+        if (isTableTitle(sections[k].title) && !instructions.some((i) => i.sectionId === sections[k].id)) sections.splice(k, 1);
+      }
+    }
+  }
   for (const ins of instructions) {
-    const reasons = sizeMismatchReasons(ins.text, sizeCount);
+    if (ins.tableRow) continue;
+    const reasons = sizeMismatchReasons(ins.text, sizeCount, ins.appliesTo?.length);
     if (reasons.length) {
       ins.review = [...(ins.review ?? []), ...reasons];
       warn('needs-review', reasons.join(' '), { instructionId: ins.id, page: ins.source.page });

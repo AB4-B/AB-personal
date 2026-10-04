@@ -131,7 +131,7 @@ export function finalizePattern(p: Pattern): Pattern {
   if (!sizeCount) warn('No size list found. Add sizes in the review screen.');
   if (!out.gauge.raw) warn('No gauge found.');
   for (const ins of out.instructions) {
-    ins.review = sizeMismatchReasons(ins.text, sizeCount);
+    ins.review = sizeMismatchReasons(ins.text, sizeCount, ins.appliesTo?.length);
     if (!ins.review.length) ins.review = undefined;
     else warn(ins.review.join(' '), { instructionId: ins.id, page: ins.source.page });
   }
