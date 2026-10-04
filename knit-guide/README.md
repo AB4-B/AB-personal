@@ -7,6 +7,12 @@ The original PDF is the source of truth. Designer text is stored verbatim; anyth
 calculates or explains is labelled (`GUIDANCE`, `MY MODIFICATION`, `NEEDS REVIEW`) and never replaces it.
 Everything is stored on the device (IndexedDB). No accounts, no servers, no paid services.
 
+## Importing
+* **PDF upload** (New project → Choose PDF).
+* **Paste text** (New project → paste box) for patterns you can't download. Copy the whole web page; menus, ads and repeated
+  banners are hidden from the guide, but the pasted text is stored untouched and is what ORIGINAL TEXT shows.
+* Both go through the same parser and the same REVIEW IMPORT screen. Pasted patterns have no page numbers or charts.
+
 ## Run
 
 ```bash
@@ -20,7 +26,7 @@ npm run e2e            # build first; iPhone-sized acceptance run, writes docs/s
 ```
 
 `npm run e2e` needs Chromium. It defaults to `/opt/pw-browsers/chromium-1194/chrome-linux/chrome`; set `CHROME_PATH` to override.
-Tests that use the sample cardigan expect `fixtures/raglan-lace-cardigan.pdf` (git-ignored, copyrighted).
+Tests that use real patterns expect the files listed in `fixtures/README.md` (git-ignored, copyrighted); they skip when absent.
 
 ### On the iPhone
 * Same Wi-Fi: open `http://<computer-ip>:5173`. The app works and saves data.
@@ -31,7 +37,7 @@ Tests that use the sample cardigan expect `fixtures/raglan-lace-cardigan.pdf` (g
 
 ```
 src/model/     types.ts (Pattern / Project / counters), size.ts (multi-size resolution), helpers.ts
-src/parser/    extract.ts (pdf.js → lines/images) · parse.ts (lines → Pattern) · detect.ts (counters, trackers)
+src/parser/    extract.ts (pdf.js → lines/images) · clean.ts (web chrome, caps headings, paste → lines) · parse.ts (lines → Pattern) · detect.ts (counters, trackers)
                edit.ts (review-screen edits + re-derive) · parser.test.ts
 src/engine/    tracker.ts (simultaneous row engine) · stitch.ts · explain.ts (glossary + plain-English steps)
 src/storage/   db.ts  Repo interface + IndexedDB implementation (swap for cloud sync later)

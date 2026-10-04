@@ -1,0 +1,51 @@
+{
+  "ran": "2026-10-04T08:56:55.463Z",
+  "results": [
+    {
+      "name": "P1 paste the website text → review",
+      "pass": true,
+      "detail": "17 sections, no web chrome"
+    },
+    {
+      "name": "P2 choose XL, create project, dash lists resolve (cast on 68-68-68-74-74-74 → 74)",
+      "pass": true,
+      "detail": "XL → 74; stitch counter suggested and started at 74"
+    },
+    {
+      "name": "P3 YOKE guide: V-neck every 4th row (14 times for XL), complex raglan flagged NEEDS REVIEW",
+      "pass": true,
+      "detail": "row 1 = V-neck shaping 1 of 14, row 5 = 2 of 14 (XL), raglan lines NEEDS REVIEW with originals"
+    },
+    {
+      "name": "P4 original text opens, highlights the current instruction, returns",
+      "pass": true,
+      "detail": "pasted text kept verbatim including the parts hidden from the guide"
+    },
+    {
+      "name": "P5 reload keeps pasted-text project",
+      "pass": true,
+      "detail": "row 5 restored"
+    },
+    {
+      "name": "S1 import the Safari-printed DROPS PDF",
+      "pass": true,
+      "detail": "10 sections, 2 images"
+    },
+    {
+      "name": "S2 size M is preselected from the print; create",
+      "pass": true,
+      "detail": "M · bust 34 in (88 cm)"
+    },
+    {
+      "name": "S3 dash list resolves for M; size-labelled buttonhole list highlights SIZE M; AT THE SAME TIME flagged",
+      "pass": true,
+      "detail": "cast on 228 (M); SIZE M line highlighted; measurement-based simultaneous instructions flagged"
+    },
+    {
+      "name": "S4 original PDF opens (4 pages)",
+      "pass": true,
+      "detail": "PAGE 1/4"
+    }
+  ],
+  "errors": []
+}

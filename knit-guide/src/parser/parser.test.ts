@@ -103,3 +103,95 @@ describe.skipIf(!hasFixture)('parse the supplied test pattern (generic parser, n
     expect(detectSuggestions(cast.text, p.sizes.length)[0].values[0]).toBe('50');
   });
 });
+
+const SAND = 'fixtures/drops-no-nonsense-cardigan.pdf';
+describe.skipIf(!existsSync(SAND))('second pattern: DROPS "Sand Ripples" printed from Safari (no bold, ALL CAPS headings, dash size lists)', async () => {
+  const { parsePdfFile } = await import('./pdf-node');
+  const p = await parsePdfFile(SAND);
+  it('metadata', () => {
+    expect(p.title).toBe('Sand Ripples');
+    expect(p.designer).toBe('DROPS Design');
+    expect(p.sizes).toEqual(['S', 'M', 'L', 'XL', 'XXL', 'XXXL']);
+    expect(p.suggestedSize).toBe('M');
+    const bust = p.measurements.find((m) => m.label === 'Bust')!;
+    expect(bust.cm).toEqual(['80', '88', '98', '106', '118', '130']);
+    expect(bust.inches?.[0]).toBe('31½');
+    expect(p.gauge).toMatchObject({ stitches: 23, rows: 30, overInches: 4 });
+    expect(p.needles).toMatch(/3\.5 mm \/ US 4/);
+  });
+  it('splits glued ALL CAPS headings from their text', () => {
+    expect(p.sections.map((s) => s.title)).toEqual([
+      'GARTER ST (back and forth on needle)', 'PATTERN, M.1', 'BUTTONHOLES', 'DECREASING TIP (applies to neckline)',
+      'BODY PIECE', 'BACK PIECE', 'RIGHT FRONT PIECE', 'LEFT FRONT PIECE', 'SLEEVE', 'ASSEMBLY',
+    ]);
+  });
+  it('page furniture and website outro are not instructions', () => {
+    const all = p.instructions.map((i) => i.text).join('\n');
+    expect(all).not.toMatch(/garnstudio\.com|Page \d of|Have you finished|tutorial videos/);
+  });
+  it('resolves dash lists per size and keeps the original', () => {
+    const cast = p.instructions.find((i) => /^Cast on 208/.test(i.text))!;
+    expect(cast.text).toContain('208- 228 -248-268-296-324');
+    expect(resolveText(cast.text, p.sizes, 2)).toContain('Cast on 248 sts');
+    expect(detectSuggestions(cast.text, 6)[0]).toMatchObject({ kind: 'stitch', values: ['208', '228', '248', '268', '296', '324'] });
+  });
+  it('wrapped "Row 1 (RS)" lines become a 2-row stitch pattern', () => {
+    const m1 = p.stitchPatterns[0];
+    expect(m1.rows.map((r) => r.side)).toEqual(['RS', 'WS']);
+    expect(m1.rows[0].text).toMatch(/psso, K1\.$/);
+    expect(m1.repeatFrom).toBe(1);
+  });
+  it('size-labelled list stays one instruction', () => {
+    const b = p.instructions.find((i) => i.text.startsWith('Make buttonholes when piece measures'))!;
+    expect(b.text.split('\n').filter((l) => /^SIZE /.test(l))).toHaveLength(6);
+  });
+  it('measurement-based AT THE SAME TIME is flagged, not guessed', () => {
+    const flagged = p.instructions.filter((i) => /AT THE SAME TIME/.test(i.text));
+    expect(flagged.length).toBeGreaterThan(0);
+    for (const i of flagged) expect(i.review?.join(' ')).toMatch(/cannot track/);
+    expect(p.trackers).toHaveLength(0);
+  });
+});
+
+const PASTE = 'fixtures/drops-244-8-pasted.txt';
+describe.skipIf(!existsSync(PASTE))('copy-paste parser: DROPS No Nonsense Cardigan pasted from the website', async () => {
+  const { parseTextFile } = await import('./pdf-node');
+  const p = parseTextFile(PASTE);
+  it('removes web chrome and finds the fields', () => {
+    expect(p.sourceType).toBe('text');
+    expect(p.title).toBe('No Nonsense Cardigan');
+    expect(p.designer).toBe('DROPS Design');
+    expect(p.sizes).toEqual(['S', 'M', 'L', 'XL', 'XXL', 'XXXL']);
+    expect(p.measurements[0].cm).toEqual(['102', '110', '116', '128', '140', '152']);
+    expect(p.measurements[0].inches?.[1]).toBe('43⅜');
+    expect(p.yarn.description).toMatch(/DROPS AIR.*forest green/);
+    expect(p.gauge).toMatchObject({ stitches: 17, rows: 22 });
+    expect(p.needles).toMatch(/SIZE 5 MM = US 8/);
+    expect(p.notions).toMatch(/537/);
+    const all = p.instructions.map((i) => i.text).join('\n');
+    expect(all).not.toMatch(/Videos|Lessons|Comments \(|related pattern|You might also like|Alternative Yarn|Product image|Charred/);
+  });
+  it('groups explanations and the piece under two parents', () => {
+    const l1 = p.sections.filter((s) => s.level === 1).map((s) => s.title);
+    expect(l1).toEqual(['EXPLANATIONS FOR THE PATTERN', 'START THE PIECE HERE']);
+    expect(p.sections.filter((s) => s.parentId).map((s) => s.title)).toEqual(
+      expect.arrayContaining(['YOKE', 'V-NECK', 'RAGLAN', 'BODY', 'SLEEVES', 'ASSEMBLY', 'GARTER STITCH (worked back and forth)']),
+    );
+  });
+  it('resolves dash lists: cast on 68-68-68-74-74-74 for XL', () => {
+    const ins = p.instructions.find((i) => i.text.startsWith('Cast on 68-68'))!;
+    expect(resolveText(ins.text, p.sizes, 3)).toMatch(/Cast on 74 stitches/);
+  });
+  it('detects V-neck every 4th row 11-11-11-14-14-14 and flags the complex raglan sentences', () => {
+    const t = p.trackers[0];
+    expect(t.unit).toBe('row');
+    const v = t.intervals.find((i) => i.label === 'V-neck')!;
+    expect(v).toMatchObject({ every: 4, times: ['11', '11', '11', '14', '14', '14'], firstAssumed: true });
+    expect(t.intervals.filter((i) => i.complex).length).toBeGreaterThan(0);
+  });
+  it('does not treat a 5-value list as a size list', () => {
+    const ins = p.instructions.find((i) => /2-1-1-1-5/.test(i.text))!;
+    expect(ins).toBeDefined();
+    expect(resolveText(ins.text, p.sizes, 0)).toBe(ins.text);
+  });
+});

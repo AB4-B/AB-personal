@@ -3,7 +3,7 @@
  * Everything here is *suggestion* data. The designer's text is never changed, and
  * anything uncertain carries a review reason so the UI can show NEEDS REVIEW.
  */
-import { findSizeGroups, toNumber } from '../model/size';
+import { findSizeGroups, NUM_OR_GROUP_SRC, parseGroupValues, toNumber } from '../model/size';
 import type {
   Instruction,
   Pattern,
@@ -26,15 +26,11 @@ export interface Suggestion {
   review?: string;
 }
 
-const N = String.raw`\d+(?:\.\d+)?`;
-/** a number optionally followed by a size group, as ONE capture: `50 [50, 54]` or `12` */
-const NG = String.raw`(${N}(?:\s*[\[(]\s*${N}(?:\s*,\s*${N})+\s*[\])])?)`;
+const NG = String.raw`(${NUM_OR_GROUP_SRC})`;
 
-/** Turn a captured "50 [50, 54, 54, 54, 58]" / "12" into per-size raw values. */
+/** Turn a captured "50 [50, 54, 54, 54, 58]" / "11-11-13-13" / "12" into per-size raw values. */
 export function valuesOf(captured: string): { values: string[]; perSize: boolean } {
-  const m = captured.match(new RegExp(String.raw`^(${N})\s*[\[(]\s*(${N}(?:\s*,\s*${N})+)\s*[\])]$`));
-  if (!m) return { values: [captured.trim()], perSize: false };
-  return { values: [m[1], ...m[2].split(',').map((s) => s.trim())], perSize: true };
+  return parseGroupValues(captured);
 }
 
 function sizeReview(values: string[], perSize: boolean, sizeCount: number): string | undefined {
@@ -123,7 +119,12 @@ export function sizeMismatchReasons(text: string, sizeCount: number): string[] {
 
 /* ---------------------------------------------------------------- trackers */
 
-const GROUP_STR = String.raw`${N}(?:\s*[\[(]\s*${N}(?:\s*,\s*${N})+\s*[\])])?`;
+const GROUP_STR = NUM_OR_GROUP_SRC;
+
+function ordinal(n: number): string {
+  const v = n % 100;
+  return `${n}${v >= 11 && v <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`;
+}
 
 function labelCase(s: string): string {
   const t = s.trim();
@@ -143,14 +144,17 @@ interface Found {
 function scanSection(
   instrs: Instruction[],
   idPrefix: string,
+  titleOf: (ins: Instruction) => string,
 ): Found {
   const f: Found = { spans: [], intervals: [], lace: false, sources: [], unit: 'row' };
   let k = 0;
+  let unitSet = false;
   for (const ins of instrs) {
     if (ins.kind !== 'action' && ins.kind !== 'info') continue;
     const t = ins.text;
     let used = false;
 
+    if (/at the same time/i.test(t)) used = true;
     if (/lace\s+pattern/i.test(t)) {
       f.lace = true;
       used = true;
@@ -175,32 +179,39 @@ function scanSection(
         sourceInstructionId: ins.id,
         stopsAfter: /then\s+continue\s+as\s+established,?\s+without/i.test(t),
       });
-      if (/round/i.test(sm[3])) f.unit = 'round';
+      if (!unitSet) { f.unit = /round/i.test(sm[3]) ? 'round' : 'row'; unitSet = true; }
       used = true;
     }
 
-    // every Nth row/round [X times]
+    // every Nth row/round [X times]; "(note)" may sit between the row and the count
     const ir = new RegExp(
-      String.raw`every\s+(\d+)(?:st|nd|rd|th)\s+(row|round)(?:\s+(${GROUP_STR})\s+times)?`,
+      String.raw`every\s+(\d+)(?:st|nd|rd|th)\s+(row|round)(?:\s*\([^)]*\))?(?:\s+(${GROUP_STR})\s+times)?`,
       'i',
     );
     const im = t.match(ir);
     if (im) {
+      const everyCount = (t.match(/every\s+\d+(?:st|nd|rd|th)\s+(?:row|round)/gi) ?? []).length;
+      const complex = everyCount > 1 || /\bbut\b/i.test(t);
       const shape = t.match(/to\s+shape\s+the\s+([A-Za-z][A-Za-z -]*?)(?:[,.]|\s+(?:work|decrease|increase)\b)/i);
-      const labelRaw = shape ? shape[1] : 'Shaping';
-      const label = /shaping$/i.test(labelRaw) ? labelCase(labelRaw) : `${labelCase(labelRaw)} shaping`;
+      const fromTitle = labelCase(titleOf(ins).toLowerCase().replace(/[:.]$/, ''));
+      const label = shape
+        ? /shaping$/i.test(shape[1])
+          ? labelCase(shape[1])
+          : `${labelCase(shape[1])} shaping`
+        : fromTitle || 'Shaping';
       const explicit = t.match(/(?:starting|beginning|begin)\s+(?:on|at|with|from)?\s*(?:the\s+)?(?:row|round)\s+(\d+)/i);
       f.intervals.push({
         id: `${idPrefix}-int${++k}`,
         label,
         every: Number(im[1]),
-        times: im[3] ? valuesOf(im[3]).values : undefined,
+        times: !complex && im[3] ? valuesOf(im[3]).values : undefined,
         first: explicit ? Number(explicit[1]) : 1,
         firstAssumed: !explicit,
         excerpt: t,
         sourceInstructionId: ins.id,
+        complex: complex || undefined,
       });
-      if (/round/i.test(im[2])) f.unit = 'round';
+      if (!unitSet) { f.unit = /round/i.test(im[2]) ? 'round' : 'row'; unitSet = true; }
       used = true;
     }
 
@@ -227,12 +238,23 @@ export function detectTrackers(
   const trackers: TrackerSpec[] = [];
   const generated: Instruction[] = [];
 
+  const consumed = new Set<string>();
+  const insertAfter = new Map<string, string>();
+  const titleOf = (ins: Instruction) => sections.find((x) => x.id === ins.sectionId)?.title ?? '';
+
   sections.forEach((sec, si) => {
-    const inSec = instructions.filter((i) => i.sectionId === sec.id);
+    if (consumed.has(sec.id)) return;
+    // "Read the next 2 sections before continuing" -> those sections belong to this guide
+    const own = instructions.filter((i) => i.sectionId === sec.id);
+    const rn = own.map((i) => i.text.match(/read\s+the\s+next\s+(\d+)\s+sections?/i)).find(Boolean);
+    const group = [sec, ...sections.slice(si + 1, si + 1 + (rn ? Number(rn[1]) : 0))];
+    group.slice(1).forEach((g) => consumed.add(g.id));
+    const ids = new Set(group.map((g) => g.id));
+    const inSec = instructions.filter((i) => ids.has(i.sectionId));
     if (!inSec.length) return;
-    const f = scanSection(inSec, `t${si}`);
+    const f = scanSection(inSec, `t${si}`, titleOf);
     const shaping = f.spans.length > 0 || f.intervals.length > 0;
-    if (!shaping || !(f.lace || f.spans.length > 0)) return;
+    if (!shaping) return;
 
     const lacePat = f.lace
       ? stitchPatterns.find((p) => p.unit === f.unit && p.rows.length > 1)
@@ -259,9 +281,13 @@ export function detectTrackers(
 
     const review: string[] = [];
     for (const iv of f.intervals) {
+      if (iv.complex) {
+        review.push(`${iv.label}: this sentence combines several "every Nth ${f.unit}" rules. The app does not calculate it. Read the original.`);
+        continue;
+      }
       if (iv.firstAssumed) {
         review.push(
-          `${iv.label}: the designer says "every ${iv.every}th ${f.unit}" but not which ${f.unit} is first. Assumed ${f.unit} ${iv.first}. Check the chart and adjust below.`,
+          `${iv.label}: the designer says "every ${ordinal(iv.every)} ${f.unit}" but not which ${f.unit} is first. Assumed ${f.unit} ${iv.first}. Check the chart and adjust below.`,
         );
       }
     }
@@ -294,6 +320,8 @@ export function detectTrackers(
       review,
     };
     trackers.push(spec);
+    const ownSrc = f.sources.filter((sid) => own.some((o) => o.id === sid));
+    insertAfter.set(`ins-${id}`, ownSrc[ownSrc.length - 1] ?? own[own.length - 1].id);
     generated.push({
       id: `ins-${id}`,
       sectionId: sec.id,
@@ -310,7 +338,8 @@ export function detectTrackers(
   const all = [...instructions];
   for (const g of generated) {
     const spec = trackers.find((t) => t.id === g.trackerId)!;
-    const lastId = spec.sourceInstructionIds[spec.sourceInstructionIds.length - 1];
+    void spec;
+    const lastId = insertAfter.get(g.id)!;
     const at = all.findIndex((i) => i.id === lastId);
     all.splice(at + 1, 0, g);
   }
@@ -320,3 +349,19 @@ export function detectTrackers(
 }
 
 export type { Pattern };
+
+/** "AT THE SAME TIME" instructions the row engine could not model: say so instead of guessing. */
+export function flagUnmodelledSimultaneous(
+  instructions: Instruction[],
+  trackers: TrackerSpec[],
+): { id: string; page: number; message: string }[] {
+  const modelled = new Set(trackers.flatMap((t) => t.sourceInstructionIds));
+  const out: { id: string; page: number; message: string }[] = [];
+  for (const ins of instructions) {
+    if (ins.kind === 'tracker' || modelled.has(ins.id) || !/at the same time/i.test(ins.text)) continue;
+    const msg = 'Simultaneous instruction ("AT THE SAME TIME"): the app cannot track this one automatically. Read it together with the shaping it applies to.';
+    ins.review = [...new Set([...(ins.review ?? []), msg])];
+    out.push({ id: ins.id, page: ins.source.page, message: msg });
+  }
+  return out;
+}

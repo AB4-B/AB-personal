@@ -9,7 +9,7 @@
     "preview": "vite preview --host --port 4173",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "e2e": "node e2e/acceptance.mjs"
+    "e2e": "node e2e/acceptance.mjs && node e2e/patterns.mjs"
   },
   "dependencies": {
     "pdfjs-dist": "^6.4.299",

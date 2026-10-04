@@ -13,6 +13,8 @@ export interface RawLine {
   text: string;
   /** every item on the line uses a non-body font (usually bold) */
   emphasis: boolean;
+  /** start a new paragraph here regardless of spacing */
+  breakBefore?: boolean;
 }
 
 export interface RawImage {

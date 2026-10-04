@@ -2,10 +2,14 @@
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { readFileSync } from 'node:fs';
 import { extractPdf } from './extract';
-import { parsePattern } from './parse';
+import { parsePastedText, parsePattern } from './parse';
 
 export async function parsePdfFile(path: string) {
   const doc = await pdfjs.getDocument({ data: new Uint8Array(readFileSync(path)) }).promise;
   const pages = await extractPdf(doc as never, pdfjs.OPS as never);
   return parsePattern(pages, { fileId: 'test', fileName: path.split('/').pop()! });
+}
+
+export function parseTextFile(path: string) {
+  return parsePastedText(readFileSync(path, 'utf8'), {});
 }

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { NoteCard, NoteComposer } from '../components/Notes';
 import { resumeInfo } from '../components/Summary';
-import { findInstruction } from '../model/helpers';
+import { findInstruction, sourceLabel } from '../model/helpers';
 import { addModification, deleteModification, editModification, renameProject, setPhoto, setSize, setStatus, updateSetup, useStore } from '../store/store';
 import type { Modification, Pattern, Project, ProjectSetup } from '../model/types';
 import { ConfirmButton, IconMore, IconPdf, PhotoInput, Sheet, ToastHost, TopBar, YarnIcon, useBlobUrl } from '../ui/common';
@@ -114,7 +114,7 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
 
         <div className="row">
           <button className="btn primary grow" onClick={() => go(`/p/${project.id}/outline`)} data-testid="open-instructions">INSTRUCTIONS</button>
-          <button className="btn grow" onClick={() => go(`/p/${project.id}/pdf`)} data-testid="open-pdf"><IconPdf /> ORIGINAL PDF</button>
+          <button className="btn grow" onClick={() => go(`/p/${project.id}/pdf`)} data-testid="open-pdf"><IconPdf /> {sourceLabel(pattern)}</button>
         </div>
 
         <section className="card stack">
@@ -123,7 +123,8 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
             <dt>Pattern</dt><dd>{pattern.title}</dd>
             <dt>Designer</dt><dd>{pattern.designer || '—'}</dd>
             {pattern.difficulty && (<><dt>Level</dt><dd>{pattern.difficulty}</dd></>)}
-            <dt>Size</dt><dd data-testid="detail-size"><b>{project.size}</b>{chest ? ` · chest ${chest} in${chestCm ? ` (${chestCm} cm)` : ''}` : ''}</dd>
+            {pattern.notions && (<><dt>Notions</dt><dd>{pattern.notions}</dd></>)}
+            <dt>Size</dt><dd data-testid="detail-size"><b>{project.size}</b>{chest ? ` · ${measurement?.label.toLowerCase()} ${chest} in${chestCm ? ` (${chestCm} cm)` : ''}` : ''}</dd>
           </dl>
         </section>
 
