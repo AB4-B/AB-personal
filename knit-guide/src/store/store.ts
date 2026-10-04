@@ -135,6 +135,7 @@ export interface NewProjectInput {
   photoBlob?: Blob;
   name: string;
   size: string;
+  sizeOverrides?: Record<string, string>;
   setup: ProjectSetup;
   modification?: string;
 }
@@ -164,6 +165,7 @@ export async function createProject(input: NewProjectInput): Promise<Project> {
     photoId,
     status: 'not-started',
     size: input.size,
+    sizeOverrides: input.sizeOverrides ?? {},
     setup: input.setup,
     modifications: input.modification
       ? [{ id: uid(), instructionId: null, text: input.modification, createdAt: t, updatedAt: t }]
@@ -196,7 +198,19 @@ export const archiveProject = (id: string, archived: boolean) => mutate(id, (p) 
 export const setStatus = (id: string, status: Project['status']) => mutate(id, (p) => void (p.status = status), false);
 export const updateSetup = (id: string, patch: Partial<ProjectSetup>) =>
   mutate(id, (p) => void Object.assign(p.setup, patch), false);
-export const setSize = (id: string, size: string) => mutate(id, (p) => void (p.size = size), false);
+/** Changing size invalidates hand-confirmed size values, so they are cleared with it. */
+export const setSize = (id: string, size: string) =>
+  mutate(id, (p) => {
+    if (p.size !== size) p.sizeOverrides = {};
+    p.size = size;
+  }, false);
+
+export const setOverride = (id: string, key: string, value: string | null) =>
+  mutate(id, (p) => {
+    p.sizeOverrides = { ...(p.sizeOverrides ?? {}) };
+    if (value === null || value === '') delete p.sizeOverrides[key];
+    else p.sizeOverrides[key] = value.trim();
+  }, false);
 
 export async function setPhoto(id: string, blob: Blob | null) {
   const cur = useStore.getState().projects[id];
@@ -261,7 +275,7 @@ export function finishAndAdvance(id: string, instructionId: string) {
   const proj = useStore.getState().projects[id];
   const pat = proj && useStore.getState().patterns[proj.patternId];
   if (!pat) return;
-  const next = nextActionable(pat, instructionId);
+  const next = nextActionable(pat, instructionId, proj);
   mutate(id, (p) => {
     if (!p.progress.completed.includes(instructionId)) p.progress.completed.push(instructionId);
     if (next) {

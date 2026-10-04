@@ -14,6 +14,8 @@ export interface TrackerContext {
   sizeCount: number;
   state: Pick<TrackerState, 'firstOverrides' | 'laceOffset'>;
   stitchPatterns: StitchPattern[];
+  /** values the knitter confirmed by hand (key -> number) */
+  overrides?: Record<string, string>;
 }
 
 export interface ShapingLine {
@@ -27,6 +29,8 @@ export interface ShapingLine {
   sourceInstructionId: string;
   progress?: { done: number; total?: number };
   parts?: { name: string; active: boolean }[];
+  /** the size value that needs the knitter's confirmation (when status is 'review') */
+  valueKey?: string;
 }
 
 export interface RowReport {
@@ -79,8 +83,9 @@ export function describeRow(spec: TrackerSpec, row: number, ctx: TrackerContext)
   // chart spans (e.g. raglan): one grouped line
   if (spec.spans.length) {
     const parts = spec.spans.map((s) => {
-      const n = pick(s.rows, sizeIndex, sizeCount);
-      return { name: short(s.name), n, active: n !== undefined && row <= n };
+      const ov = s.rowsKey ? ctx.overrides?.[s.rowsKey] : undefined;
+      const n = ov !== undefined ? toNumber(ov) : pick(s.rows, sizeIndex, sizeCount);
+      return { name: short(s.name), n, key: s.rowsKey, active: n !== undefined && row <= n };
     });
     const unknown = parts.some((p) => p.n === undefined);
     const anyActive = parts.some((p) => p.active);
@@ -92,8 +97,9 @@ export function describeRow(spec: TrackerSpec, row: number, ctx: TrackerContext)
         label: spec.spanLabel,
         status: 'review',
         headline: 'NEEDS REVIEW',
-        detail: 'The row counts for this size could not be resolved. Read the original instruction.',
+        detail: 'The row counts for this size could not be resolved safely.',
         sourceInstructionId: first.sourceInstructionId,
+        valueKey: parts.find((p) => p.n === undefined)?.key,
       });
     } else {
       const status: ShapingLine['status'] = !anyActive ? 'finished' : plainRow ? 'none' : 'do';
@@ -131,16 +137,18 @@ export function describeRow(spec: TrackerSpec, row: number, ctx: TrackerContext)
       continue;
     }
     const first = ctx.state.firstOverrides[iv.id] ?? iv.first;
-    const total = iv.times ? pick(iv.times, sizeIndex, sizeCount) : undefined;
+    const ovT = iv.timesKey ? ctx.overrides?.[iv.timesKey] : undefined;
+    const total = ovT !== undefined ? toNumber(ovT) : iv.times ? pick(iv.times, sizeIndex, sizeCount) : undefined;
     if (iv.times && total === undefined) {
       shaping.push({
         id: iv.id,
         label: iv.label,
         status: 'review',
         headline: 'NEEDS REVIEW',
-        detail: 'The repeat count for this size could not be resolved. Read the original instruction.',
+        detail: 'The repeat count for this size could not be resolved safely.',
         excerpt: iv.excerpt,
         sourceInstructionId: iv.sourceInstructionId,
+        valueKey: iv.timesKey,
       });
       continue;
     }

@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { NoteCard, NoteComposer } from '../components/Notes';
 import { resumeInfo } from '../components/Summary';
-import { findInstruction, sourceLabel } from '../model/helpers';
+import { projectFacts } from '../model/facts';
+import { analyzeResolution } from '../model/guide';
+import { findInstruction, hasProgress, sourceLabel } from '../model/helpers';
 import { addModification, deleteModification, editModification, renameProject, setPhoto, setSize, setStatus, updateSetup, useStore } from '../store/store';
 import type { Modification, Pattern, Project, ProjectSetup } from '../model/types';
 import { ConfirmButton, IconMore, IconPdf, PhotoInput, Sheet, ToastHost, TopBar, YarnIcon, useBlobUrl } from '../ui/common';
@@ -39,6 +41,8 @@ function EditSetup({ project, pattern, onClose }: { project: Project; pattern: P
   const [size, setSz] = useState(project.size);
   const [s, setS] = useState(project.setup);
   const [status, setSt] = useState(project.status);
+  const [ack, setAck] = useState(false);
+  const blocked = size !== project.size && hasProgress(project) && !ack;
   return (
     <Sheet title="Edit project details" onClose={onClose}>
       <div className="field"><label htmlFor="pn">Project name</label><input id="pn" className="input" value={name} onChange={(e) => setName(e.target.value)} /></div>
@@ -49,7 +53,22 @@ function EditSetup({ project, pattern, onClose }: { project: Project; pattern: P
             <button key={z} className={`size-btn ${size === z ? 'on' : ''}`} onClick={() => setSz(z)}><b>{z}</b></button>
           ))}
         </div>
-        {size !== project.size && <div className="warnbox">Changing size changes every resolved number. Counters you already set keep their old targets.</div>}
+        {size !== project.size && (
+          <div className="warnbox review-box" data-testid="size-change-warning">
+            <b>⚠ Changing size changes the whole guide.</b>
+            <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+              <li>Stitch counts, row counts and repeat counts will change.</li>
+              <li>Counters you already started keep their old targets.</li>
+              <li>{Object.keys(project.sizeOverrides ?? {}).length} size value{Object.keys(project.sizeOverrides ?? {}).length === 1 ? '' : 's'} you confirmed by hand will be cleared, and you will be asked again.</li>
+            </ul>
+            {hasProgress(project) && (
+              <label className="row" style={{ minHeight: 48, marginTop: 6 }}>
+                <input type="checkbox" style={{ width: 26, height: 26 }} checked={ack} onChange={(e) => setAck(e.target.checked)} data-testid="size-change-ack" />
+                <span><b>Knitting has already started.</b> I understand and want to change size anyway.</span>
+              </label>
+            )}
+          </div>
+        )}
       </div>
       <div className="field">
         <label>Status</label>
@@ -60,7 +79,7 @@ function EditSetup({ project, pattern, onClose }: { project: Project; pattern: P
       {FIELDS.map(([k, label]) => (
         <div className="field" key={k}><label htmlFor={`f-${k}`}>{label}</label><input id={`f-${k}`} className="input" value={s[k]} onChange={(e) => setS({ ...s, [k]: e.target.value })} /></div>
       ))}
-      <button className="btn primary" onClick={() => {
+      <button className="btn primary" disabled={blocked} data-testid="edit-save" onClick={() => {
         if (name.trim() && name !== project.name) renameProject(project.id, name.trim());
         if (size !== project.size) setSize(project.id, size);
         if (status !== project.status) setStatus(project.id, status);
@@ -83,10 +102,8 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
   if (!project || !pattern) return <div className="screen"><TopBar title="Project" onBack={() => go('/')} /><div className="empty">Project not found.</div></div>;
 
   const resume = resumeInfo(project, pattern);
-  const sizeIdx = pattern.sizes.indexOf(project.size);
-  const measurement = pattern.measurements[0];
-  const chest = measurement?.inches?.[sizeIdx];
-  const chestCm = measurement?.cm?.[sizeIdx];
+  const facts = projectFacts(pattern, project.size);
+  const resolution = analyzeResolution(pattern, project.size, project.sizeOverrides ?? {});
 
   return (
     <div className="screen">
@@ -124,7 +141,9 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
             <dt>Designer</dt><dd>{pattern.designer || '—'}</dd>
             {pattern.difficulty && (<><dt>Level</dt><dd>{pattern.difficulty}</dd></>)}
             {pattern.notions && (<><dt>Notions</dt><dd>{pattern.notions}</dd></>)}
-            <dt>Size</dt><dd data-testid="detail-size"><b>{project.size}</b>{chest ? ` · ${measurement?.label.toLowerCase()} ${chest} in${chestCm ? ` (${chestCm} cm)` : ''}` : ''}</dd>
+            <dt>Size</dt><dd data-testid="detail-size"><b>{project.size}</b>{facts.measurements[0] ? ` · ${facts.measurements[0].label.toLowerCase()} ${facts.measurements[0].value}` : ''}</dd>
+            {facts.measurements.slice(1).map((m) => (<Fragment key={m.label}><dt>{m.label}</dt><dd>{m.value}</dd></Fragment>))}
+            <dt>Size values</dt><dd data-testid="detail-resolution">{resolution.needsReview.length === 0 ? `✓ all resolved for size ${project.size}` : `⚠ ${resolution.needsReview.length} need review`}</dd>
           </dl>
         </section>
 
@@ -134,7 +153,9 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
             <dt>Yarn</dt><dd>{project.setup.yarn || '—'}</dd>
             <dt>Colour</dt><dd>{project.setup.colour || '—'}</dd>
             <dt>Needles</dt><dd>{project.setup.needle || '—'}</dd>
-            <dt>Pattern gauge</dt><dd>{pattern.gauge.raw || '—'}</dd>
+            {facts.needles && (<><dt>Pattern needles</dt><dd>{facts.needles}</dd></>)}
+            <dt>Pattern gauge</dt><dd>{facts.gauge ?? '—'}</dd>
+            {facts.yarn && (<><dt>Yarn required</dt><dd>{facts.yarn}</dd></>)}
             <dt>My gauge</dt><dd>{project.setup.gaugeSts || project.setup.gaugeRows ? `${project.setup.gaugeSts || '?'} sts × ${project.setup.gaugeRows || '?'} rows / 4"` : 'Not entered'}</dd>
             <dt>Body length</dt><dd>{project.setup.bodyLength || '—'}</dd>
             <dt>Sleeve length</dt><dd>{project.setup.sleeveLength || '—'}</dd>

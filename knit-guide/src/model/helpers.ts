@@ -1,3 +1,4 @@
+import { guideInstruction, type GuideCtx } from './guide';
 import type { Counter, Instruction, Pattern, Project, Note } from './types';
 
 /** UUID that also works in insecure contexts (http://192.168.x.x), where crypto.randomUUID is missing. */
@@ -17,10 +18,32 @@ export function sizeIndexOf(pattern: Pattern, project: Pick<Project, 'size'>): n
   return pattern.sizes.indexOf(project.size);
 }
 
+export const guideCtxOf = (pattern: Pattern, project: Pick<Project, 'size' | 'sizeOverrides'>): GuideCtx => ({
+  pattern,
+  size: project.size,
+  overrides: project.sizeOverrides ?? {},
+});
+
+/** Instructions that exist in the guide for this project's size (others are hidden). */
+export const visibleInstructions = (pattern: Pattern, project: Pick<Project, 'size' | 'sizeOverrides'>) => {
+  const ctx = guideCtxOf(pattern, project);
+  return pattern.instructions.filter((i) => i.kind === 'tracker' || !guideInstruction(i, ctx).hidden);
+};
+
+/** Has real knitting happened? Used to warn before a size change. */
+export const hasProgress = (p: Project) =>
+  p.status !== 'not-started' ||
+  p.progress.completed.length > 0 ||
+  p.counters.length > 0 ||
+  p.stitchCounters.length > 0 ||
+  Object.keys(p.trackers).length > 0 ||
+  !!p.progress.currentInstructionId;
+
 export function progressFraction(pattern: Pattern, project: Project): number {
-  const total = pattern.instructions.filter(isActionable).length;
+  const vis = visibleInstructions(pattern, project);
+  const total = vis.filter(isActionable).length;
   if (!total) return 0;
-  const done = project.progress.completed.filter((id) => pattern.instructions.some((i) => i.id === id && isActionable(i))).length;
+  const done = project.progress.completed.filter((id) => vis.some((i) => i.id === id && isActionable(i))).length;
   return Math.min(1, done / total);
 }
 
@@ -32,10 +55,10 @@ export function sectionTitle(pattern: Pattern, id?: string) {
   return pattern.sections.find((s) => s.id === id)?.title ?? '';
 }
 
-export function nextActionable(pattern: Pattern, afterId?: string): Instruction | undefined {
-  const list = pattern.instructions;
-  const start = afterId ? list.findIndex((i) => i.id === afterId) + 1 : 0;
-  return list.slice(start).find(isActionable);
+export function nextActionable(pattern: Pattern, afterId?: string, project?: Pick<Project, 'size' | 'sizeOverrides'>): Instruction | undefined {
+  const list = project ? visibleInstructions(pattern, project) : pattern.instructions;
+  const at = afterId ? pattern.instructions.findIndex((i) => i.id === afterId) : -1;
+  return pattern.instructions.slice(at + 1).filter((i) => list.includes(i)).find(isActionable);
 }
 
 /** Newest note relevant to where the knitter is: stop note, then instruction, section, project. */
@@ -71,3 +94,6 @@ export function formatWhen(ts?: number): string {
 
 export const isTextSource = (p: Pattern) => p.sourceType === 'text';
 export const sourceLabel = (p: Pattern) => (isTextSource(p) ? 'ORIGINAL TEXT' : 'ORIGINAL PDF');
+
+/** Review notes that still belong in the guide (size problems are handled by the size-value review instead). */
+export const guideNotes = (ins: Instruction) => (ins.review ?? []).filter((r) => !/numbers but the pattern has/.test(r));

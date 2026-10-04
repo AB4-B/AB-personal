@@ -110,6 +110,8 @@ export interface Section {
   level: 1 | 2;
   parentId?: string;
   page?: number;
+  /** sizes this section is written for ("SIZES S, M, XL: …"); absent = all sizes */
+  appliesTo?: string[];
 }
 
 export type InstructionKind = 'action' | 'info' | 'stitch-pattern' | 'tracker';
@@ -166,6 +168,8 @@ export interface TrackerSpan {
   name: string;
   /** one value per size (raw strings) */
   rows: string[];
+  /** key of the size value in the source instruction (for project overrides) */
+  rowsKey?: string;
   sourceInstructionId: string;
   stopsAfter: boolean;
 }
@@ -176,6 +180,7 @@ export interface TrackerInterval {
   every: number;
   /** values per size; undefined = until told otherwise (e.g. "to desired length") */
   times?: string[];
+  timesKey?: string;
   /** first row the rule applies on (assumed - flagged for review when not stated) */
   first: number;
   firstAssumed: boolean;
@@ -218,6 +223,11 @@ export interface Project {
   lastWorkedAt?: number;
 
   size: string;
+  /**
+   * Size values the knitter confirmed by hand because the source list could not be mapped safely.
+   * Key = `${instructionId}#${groupIndex}`. The pattern itself is never changed. Cleared when the size changes.
+   */
+  sizeOverrides?: Record<string, string>;
   setup: ProjectSetup;
   modifications: Modification[];
   notes: Note[];

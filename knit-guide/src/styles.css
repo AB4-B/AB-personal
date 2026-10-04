@@ -261,3 +261,5 @@ input, textarea, select { font-size: 16px; } /* prevents iOS zoom on focus */
 .srcline { padding: 1px 6px; border-radius: 6px; }
 .srcline.hit { background: var(--gold-soft); border-left: 4px solid var(--gold); }
 .textsrc { flex: 1; overflow: auto; background: #fff; padding: 12px 10px calc(130px + var(--safe-b)); white-space: pre-wrap; font-size: 16px; line-height: 1.5; }
+.review-chip { border: 1.5px solid #e0a43a; background: var(--warn-soft); color: var(--warn-ink); border-radius: 99px; font-weight: 800; font-size: 13px; padding: 3px 10px; letter-spacing: .02em; margin: 0 2px; cursor: pointer; }
+.review-box { border-left: 6px solid #e0a43a; }

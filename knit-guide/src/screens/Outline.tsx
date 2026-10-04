@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { CounterCard, StitchCounterCard } from '../components/Counters';
 import { InstructionSheet, startSuggestion, suggestionTarget, suggestionsFor } from '../components/InstructionSheet';
 import { NoteCard, NoteComposer } from '../components/Notes';
-import { RichText, useAbbrSheet } from '../components/RichText';
+import { GuidedText, RichText, useAbbrSheet } from '../components/RichText';
+import { ResolutionBanner, useResolver } from '../components/Resolver';
 import { TrackerCard } from '../components/TrackerCard';
-import { counterText, findInstruction, formatWhen, isActionable, isTextSource } from '../model/helpers';
+import { guideInstruction, sectionVisible } from '../model/guide';
+import { projectFacts } from '../model/facts';
+import { counterText, findInstruction, formatWhen, guideCtxOf, guideNotes, isActionable, isTextSource } from '../model/helpers';
 import type { Instruction, Pattern, PatternImage, Project, Section } from '../model/types';
 import { attachStopNote, finishAndAdvance, quickStop, setExpanded, toggleComplete, useStore } from '../store/store';
 import { IconChevron, IconPdf, IconPin, IconPlus, IconStop, Sheet, ToastHost, TopBar, toast, useBlobUrl } from '../ui/common';
@@ -74,7 +77,8 @@ function Collapsible({ id, title, open, onToggle, count, level2, children, testI
 
 function InsRow({ project, pattern, ins, current, onOpen, onViewOriginal }: { project: Project; pattern: Pattern; ins: Instruction; current: boolean; onOpen: (i: Instruction, view?: 'menu' | 'original') => void; onViewOriginal: (id: string) => void }) {
   const { setTerm, sheet } = useAbbrSheet();
-  const sizeIndex = pattern.sizes.indexOf(project.size);
+  const resolver = useResolver(project, pattern);
+  const gctx = guideCtxOf(pattern, project);
   const done = project.progress.completed.includes(ins.id);
   const counters = project.counters.filter((c) => c.instructionId === ins.id);
   const stitch = project.stitchCounters.filter((c) => c.instructionId === ins.id);
@@ -101,11 +105,11 @@ function InsRow({ project, pattern, ins, current, onOpen, onViewOriginal }: { pr
           {ins.kind === 'tracker' ? (
             <span><span className="badge gen">Generated</span> <b>{ins.text}</b>{spec && spec.review.length > 0 && <> <span className="badge review">NEEDS REVIEW</span></>}</span>
           ) : ins.kind === 'stitch-pattern' ? (
-            <span className="pre"><b>{ins.text.split('\n')[0]}</b>{'\n'}<RichText text={ins.text.split('\n').slice(1).join('\n')} pattern={pattern} sizeIndex={sizeIndex} onTerm={setTerm} /></span>
+            <span className="pre"><b>{ins.text.split('\n')[0]}</b>{'\n'}<RichText text={ins.text.split('\n').slice(1).join('\n')} pattern={pattern} onTerm={setTerm} /></span>
           ) : (
-            <RichText text={ins.text} pattern={pattern} sizeIndex={sizeIndex} onTerm={setTerm} />
+            <GuidedText ins={ins} ctx={gctx} onTerm={setTerm} onResolve={resolver.open} />
           )}
-          {ins.review && ins.kind !== 'tracker' && <> <span className="badge review" data-testid="review-badge">NEEDS REVIEW</span></>}
+          {guideNotes(ins).length > 0 && ins.kind !== 'tracker' && <> <span className="badge review" data-testid="review-badge">NEEDS REVIEW</span></>}
           {mods.map((m) => <div key={m.id} className="mod"><span className="pat-label mine">My modification</span>{m.text}</div>)}
           {(counters.length > 0 || stitch.length > 0 || notes.length > 0 || ins.source.imageIds.length > 0) && !current && (
             <div className="chips">
@@ -128,7 +132,7 @@ function InsRow({ project, pattern, ins, current, onOpen, onViewOriginal }: { pr
           {suggestions.length > 0 && stitch.length + counters.length === 0 && (
             <div className="chips" style={{ marginTop: 0 }}>
               {suggestions.map((s, i) => {
-                const t = suggestionTarget(s, sizeIndex);
+                const t = suggestionTarget(s, ins, pattern, project);
                 return <button key={i} className="chip suggest" onClick={() => startSuggestion(project, pattern, ins, s)}>{s.kind === 'stitch' ? `START STITCH COUNTER: ${t ?? '?'}` : `${s.kind === 'times' ? 'REPEAT' : s.kind === 'rows' ? 'ROW' : 'ROUND'} COUNTER${t ? `: ${t}` : ''}`}</button>;
               })}
             </div>
@@ -138,6 +142,7 @@ function InsRow({ project, pattern, ins, current, onOpen, onViewOriginal }: { pr
         </div>
       )}
       {sheet}
+      {resolver.sheet}
     </div>
   );
 }
@@ -178,12 +183,16 @@ export function Outline({ projectId }: { projectId: string }) {
   const exp = new Set(project.progress.expanded);
   const toggle = (id: string) => setExpanded(project.id, id, !exp.has(id));
   const sheetIns = sheet ? findInstruction(pattern, sheet.id) : undefined;
-  const sizeIdx = pattern.sizes.indexOf(project.size);
+  const gctx = guideCtxOf(pattern, project);
+  const facts = projectFacts(pattern, project.size);
   const charts = pattern.images.filter((i) => i.kind === 'chart');
   const diagrams = pattern.images.filter((i) => i.kind === 'diagram' || i.kind === 'photo');
 
   const renderSection = (sec: Section, children: Section[]) => {
-    const list = pattern.instructions.filter((i) => i.sectionId === sec.id);
+    if (!sectionVisible(sec, project.size)) return null;
+    const parent = pattern.sections.find((x) => x.id === sec.parentId);
+    if (parent && !sectionVisible(parent, project.size)) return null;
+    const list = pattern.instructions.filter((i) => i.sectionId === sec.id && (i.kind === 'tracker' || !guideInstruction(i, gctx).hidden));
     const total = list.filter(isActionable).length;
     const done = list.filter((i) => isActionable(i) && project.progress.completed.includes(i.id)).length;
     return (
@@ -200,7 +209,7 @@ export function Outline({ projectId }: { projectId: string }) {
     );
   };
 
-  const topLevel = pattern.sections.filter((s) => s.level === 1);
+  const topLevel = pattern.sections.filter((s) => s.level === 1 && sectionVisible(s, project.size));
   const noteCount = project.notes.length;
 
   return (
@@ -216,17 +225,23 @@ export function Outline({ projectId }: { projectId: string }) {
           {project.progress.lastStop && <span className="tiny muted">Last stop {formatWhen(project.progress.lastStop.at)}</span>}
           {noteCount > 0 && <span className="tiny muted">· {noteCount} note{noteCount === 1 ? '' : 's'}</span>}
         </div>
+        <ResolutionBanner project={project} pattern={pattern} />
 
         <Collapsible id="data" title="Project Data" open={exp.has('data')} onToggle={() => toggle('data')} testId="section-data">
           <div style={{ padding: 14 }}>
-            <dl className="kv">
-              <dt>Pattern</dt><dd>{pattern.title}{pattern.designer ? ` · ${pattern.designer}` : ''}</dd>
-              <dt>Size</dt><dd><b>{project.size}</b>{pattern.measurements[0]?.inches?.[sizeIdx] ? ` · ${pattern.measurements[0].label.toLowerCase()} ${pattern.measurements[0].inches[sizeIdx]} in` : ''}</dd>
-              <dt>Yarn</dt><dd>{[project.setup.yarn, project.setup.colour].filter(Boolean).join(' · ') || '—'}</dd>
-              <dt>Needles</dt><dd>{project.setup.needle || '—'}</dd>
-              <dt>Gauge</dt><dd>{pattern.gauge.raw || '—'}</dd>
+            <dl className="kv" data-testid="project-data">
+              <dt>Size</dt><dd><b>{project.size}</b></dd>
+              {facts.measurements.map((m) => (
+                <Fragment key={m.label}><dt>{m.label}</dt><dd>{m.value}</dd></Fragment>
+              ))}
+              {facts.needles && (<><dt>Needles</dt><dd>{facts.needles}</dd></>)}
+              {facts.gauge && (<><dt>Gauge</dt><dd>{facts.gauge}</dd></>)}
+              {facts.yarn && (<><dt>Yarn required</dt><dd>{facts.yarn}</dd></>)}
+              <dt>My yarn</dt><dd>{[project.setup.yarn, project.setup.colour].filter(Boolean).join(' · ') || '—'}</dd>
+              <dt>My needles</dt><dd>{project.setup.needle || '—'}</dd>
               <dt>Lengths</dt><dd>Body {project.setup.bodyLength || '—'} · Sleeve {project.setup.sleeveLength || '—'}</dd>
             </dl>
+            {facts.flags.length > 0 && <div className="warnbox" style={{ marginTop: 8 }} data-testid="measurement-review"><b>⚠ MEASUREMENT NEEDS REVIEW</b>{facts.flags.map((f, i) => <div key={i}>{f}</div>)}</div>}
             {project.modifications.filter((m) => !m.instructionId).map((m) => <div key={m.id} className="mod"><span className="pat-label mine">My modification</span>{m.text}</div>)}
           </div>
         </Collapsible>

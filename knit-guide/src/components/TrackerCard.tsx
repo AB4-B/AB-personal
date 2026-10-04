@@ -4,15 +4,19 @@ import { findInstruction } from '../model/helpers';
 import type { Pattern, Project, TrackerSpec } from '../model/types';
 import { finishAndAdvance, setTrackerFirst, setTrackerLaceOffset, setTrackerRow } from '../store/store';
 import { Sheet } from '../ui/common';
-import { RichText, useAbbrSheet } from './RichText';
+import { guideCtxOf } from '../model/helpers';
+import { GuidedText, useAbbrSheet } from './RichText';
+import { useResolver } from './Resolver';
 
 export function TrackerCard({ project, pattern, spec, onViewOriginal }: { project: Project; pattern: Pattern; spec: TrackerSpec; onViewOriginal: (instructionId: string) => void }) {
   const [settings, setSettings] = useState(false);
   const [showReview, setShowReview] = useState(false);
   const { setTerm, sheet: abbrSheet } = useAbbrSheet();
+  const resolver = useResolver(project, pattern);
+  const gctx = guideCtxOf(pattern, project);
   const state = project.trackers[spec.id] ?? { row: spec.firstRow, firstOverrides: {} };
   const sizeIndex = pattern.sizes.indexOf(project.size);
-  const rep = describeRow(spec, state.row, { sizeIndex, sizeCount: pattern.sizes.length, state, stitchPatterns: pattern.stitchPatterns });
+  const rep = describeRow(spec, state.row, { sizeIndex, sizeCount: pattern.sizes.length, state, stitchPatterns: pattern.stitchPatterns, overrides: project.sizeOverrides });
   const unitName = spec.unit === 'round' ? 'ROUND' : 'ROW';
   const lastIns = spec.sourceInstructionIds[spec.sourceInstructionIds.length - 1];
   const trackerIns = pattern.instructions.find((i) => i.trackerId === spec.id);
@@ -49,13 +53,13 @@ export function TrackerCard({ project, pattern, spec, onViewOriginal }: { projec
         <div className="tline" data-testid="tracker-lace">
           <span className="lbl">Lace repeat</span>
           <span className="head">Pattern {spec.unit} {rep.lace.n} of {rep.lace.of}</span>
-          <blockquote><span className="pat-label">Original pattern</span>{rep.lace.text}</blockquote>
+          <blockquote><span className="pat-label">Pattern</span>{rep.lace.text}</blockquote>
         </div>
       )}
       {rep.plain && !rep.shaping.some((s) => s.status === 'do') && (
         <div className="tline">
           <span className="lbl">This {spec.unit}</span>
-          <blockquote><span className="pat-label">Original pattern</span>{rep.plain.text}</blockquote>
+          <blockquote><span className="pat-label">Pattern</span>{rep.plain.text}</blockquote>
         </div>
       )}
       {rep.shaping.map((s) => (
@@ -69,10 +73,14 @@ export function TrackerCard({ project, pattern, spec, onViewOriginal }: { projec
           {s.progress && s.progress.total ? <div className="progress" style={{ marginTop: 4 }}><i style={{ width: `${Math.min(100, (100 * (s.progress.done + (s.status === 'do' ? 1 : 0))) / s.progress.total)}%` }} /></div> : null}
           {(s.status === 'do' || s.status === 'review') && (s.excerpt || s.status === 'review') && (
             <blockquote>
-              <span className="pat-label">Original pattern</span>
-              <RichText text={s.excerpt ?? findInstruction(pattern, s.sourceInstructionId)?.text ?? ''} pattern={pattern} sizeIndex={sizeIndex} onTerm={setTerm} />
+              <span className="pat-label">Pattern · size {project.size}</span>
+              {(() => {
+                const src = findInstruction(pattern, s.sourceInstructionId);
+                return src ? <GuidedText ins={src} ctx={gctx} onTerm={setTerm} onResolve={resolver.open} hideReviewBox /> : null;
+              })()}
             </blockquote>
           )}
+          {s.valueKey && <button className="btn small" style={{ alignSelf: 'flex-start' }} onClick={() => resolver.openKey(s.valueKey!)} data-testid="tracker-resolve">⚠ CHOOSE MY VALUE</button>}
           <button className="btn ghost small" style={{ alignSelf: 'flex-start', minHeight: 32, padding: 0 }} onClick={() => onViewOriginal(s.sourceInstructionId)}>View original instruction</button>
         </div>
       ))}
@@ -85,6 +93,7 @@ export function TrackerCard({ project, pattern, spec, onViewOriginal }: { projec
         <button className="btn primary" onClick={() => finishAndAdvance(project.id, trackerIns.id)}>FINISH THIS SECTION · NEXT INSTRUCTION</button>
       )}
       {abbrSheet}
+      {resolver.sheet}
       {settings && (
         <Sheet title="Adjust guide" onClose={() => setSettings(false)}>
           <div className="field">
@@ -102,7 +111,7 @@ export function TrackerCard({ project, pattern, spec, onViewOriginal }: { projec
                   <div className="formula" style={{ flex: 1 }} data-testid="first-row">{first}</div>
                   <button className="pad sm" style={{ flex: 1 }} onClick={() => setTrackerFirst(project.id, spec.id, iv.id, first + 1)}>+</button>
                 </div>
-                <span className="small-text">Every {iv.every}{iv.every === 1 ? '' : 'th'} {spec.unit}{iv.times ? `, ${pick(iv.times, sizeIndex, pattern.sizes.length) ?? '?'} times for size ${project.size}` : ''}.</span>
+                <span className="small-text">Every {iv.every === 2 ? '2nd' : iv.every === 3 ? '3rd' : `${iv.every}th`} {spec.unit}{iv.times ? `, ${(iv.timesKey && project.sizeOverrides?.[iv.timesKey]) || pick(iv.times, sizeIndex, pattern.sizes.length) || '?'} times for size ${project.size}` : ''}.</span>
               </div>
             );
           })}
