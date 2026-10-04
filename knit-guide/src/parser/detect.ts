@@ -3,6 +3,7 @@
  * Everything here is *suggestion* data. The designer's text is never changed, and
  * anything uncertain carries a review reason so the UI can show NEEDS REVIEW.
  */
+import { groupKey, listSizesFor } from '../model/guide';
 import { findSizeGroups, NUM_OR_GROUP_SRC, parseGroupValues, toNumber } from '../model/size';
 import type {
   Instruction,
@@ -48,15 +49,14 @@ export function detectSuggestions(text: string, sizeCount: number): Suggestion[]
   };
 
   const stitchRes: [RegExp, (n: string) => string][] = [
-    [new RegExp(String.raw`\bcast(?:ing)?\s+on\s+${NG}\s*(?:sts?|stitches)?`, 'gi'), (n) => `Cast on ${n}`],
-    [new RegExp(String.raw`\bpick(?:ing)?\s+up(?:\s+and\s+knit)?\s+${NG}\s*(?:sts?|stitches)`, 'gi'), (n) => `Pick up ${n}`],
-    [new RegExp(String.raw`\b(?:increase|decrease)\s+to\s+${NG}\s*(?:sts?|stitches)`, 'gi'), (n) => `Reach ${n}`],
-    [new RegExp(String.raw`\b(?:knit|work|purl)\s+the\s+next\s+${NG}\s*(?:sts?|stitches)`, 'gi'), (n) => `Work next ${n}`],
+    [new RegExp(String.raw`\bcast(?:ing)?\s+on\s+${NG}\s*(?:sts?|stitches)?`, 'gi'), () => 'Cast on'],
+    [new RegExp(String.raw`\bpick(?:ing)?\s+up(?:\s+and\s+knit)?\s+${NG}\s*(?:sts?|stitches)`, 'gi'), () => 'Pick up'],
+    [new RegExp(String.raw`\b(?:increase|decrease)\s+to\s+${NG}\s*(?:sts?|stitches)`, 'gi'), () => 'Reach target'],
+    [new RegExp(String.raw`\b(?:knit|work|purl)\s+the\s+next\s+${NG}\s*(?:sts?|stitches)`, 'gi'), () => 'Work next'],
   ];
   for (const [re, label] of stitchRes) {
     for (const m of text.matchAll(re)) {
-      const first = valuesOf(m[1]).values[0];
-      add('stitch', `${label(first)} sts`, m[1], m[0]);
+      add('stitch', label(m[1]), m[1], m[0]);
     }
   }
 
@@ -121,6 +121,25 @@ export function sizeMismatchReasons(text: string, sizeCount: number): string[] {
 
 const GROUP_STR = NUM_OR_GROUP_SRC;
 
+/** Per-size values of a captured list + the override key of that list in its instruction. */
+function listValues(ins: Instruction, captured: string, sizes: string[], sections: Section[]) {
+  const { values: raw, perSize } = valuesOf(captured);
+  if (!perSize) return { values: raw };
+  const groups = findSizeGroups(ins.text, sizes.length);
+  const i = groups.findIndex((g) => g.raw === captured.trim());
+  const key = i >= 0 ? groupKey(ins.id, i) : undefined;
+  const list = listSizesFor({ sections, sizes } as never, ins);
+  let values = raw;
+  // a list written for a subset of sizes ("SIZES S, M, XL: 2-1-1-1-5") is spread over the full size list
+  if (list.length !== sizes.length && raw.length === list.length) {
+    values = sizes.map((sz) => {
+      const j = list.indexOf(sz);
+      return j >= 0 ? raw[j] : '';
+    });
+  }
+  return { values, key };
+}
+
 function ordinal(n: number): string {
   const v = n % 100;
   return `${n}${v >= 11 && v <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`;
@@ -145,6 +164,8 @@ function scanSection(
   instrs: Instruction[],
   idPrefix: string,
   titleOf: (ins: Instruction) => string,
+  sizes: string[],
+  sections: Section[],
 ): Found {
   const f: Found = { spans: [], intervals: [], lace: false, sources: [], unit: 'row' };
   let k = 0;
@@ -171,11 +192,12 @@ function scanSection(
     );
     const sm = t.match(spanRe);
     if (sm) {
-      const { values } = valuesOf(sm[2]);
+      const lv = listValues(ins, sm[2], sizes, sections);
       f.spans.push({
         id: `${idPrefix}-span${++k}`,
         name: sm[1].replace(/\s+/g, ' ').trim(),
-        rows: values,
+        rows: lv.values,
+        rowsKey: lv.key,
         sourceInstructionId: ins.id,
         stopsAfter: /then\s+continue\s+as\s+established,?\s+without/i.test(t),
       });
@@ -200,11 +222,13 @@ function scanSection(
           : `${labelCase(shape[1])} shaping`
         : fromTitle || 'Shaping';
       const explicit = t.match(/(?:starting|beginning|begin)\s+(?:on|at|with|from)?\s*(?:the\s+)?(?:row|round)\s+(\d+)/i);
+      const tv = !complex && im[3] ? listValues(ins, im[3], sizes, sections) : undefined;
       f.intervals.push({
         id: `${idPrefix}-int${++k}`,
         label,
         every: Number(im[1]),
-        times: !complex && im[3] ? valuesOf(im[3]).values : undefined,
+        times: tv?.values,
+        timesKey: tv?.key,
         first: explicit ? Number(explicit[1]) : 1,
         firstAssumed: !explicit,
         excerpt: t,
@@ -233,8 +257,9 @@ export function detectTrackers(
   sections: Section[],
   instructions: Instruction[],
   stitchPatterns: StitchPattern[],
-  sizeCount: number,
+  sizes: string[],
 ): { trackers: TrackerSpec[]; generated: Instruction[] } {
+  const sizeCount = sizes.length;
   const trackers: TrackerSpec[] = [];
   const generated: Instruction[] = [];
 
@@ -252,7 +277,7 @@ export function detectTrackers(
     const ids = new Set(group.map((g) => g.id));
     const inSec = instructions.filter((i) => ids.has(i.sectionId));
     if (!inSec.length) return;
-    const f = scanSection(inSec, `t${si}`, titleOf);
+    const f = scanSection(inSec, `t${si}`, titleOf, sizes, sections);
     const shaping = f.spans.length > 0 || f.intervals.length > 0;
     if (!shaping) return;
 

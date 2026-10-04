@@ -38,10 +38,10 @@ const stid = (id) => page.locator('.sheet').getByTestId(id);
 const gotoHome = async () => { await page.goto(BASE); await page.waitForSelector('.hero'); };
 
 const SHEET_ACTION = async (testid) => { await page.getByTestId(testid).click(); };
-async function openInstruction(textRe) {
-  const row = page.locator('[data-testid=instruction] .body', { hasText: textRe }).first();
+async function openInstruction(re) {
+  const row = page.locator('[data-testid=instruction]', { has: page.locator('.body', { hasText: re }) }).first();
   await row.scrollIntoViewIfNeeded();
-  await row.click();
+  await row.getByTestId('plus').click();
   await page.waitForSelector('.sheet');
 }
 const closeSheet = async () => { await page.locator('.sheet [aria-label=Close]').first().click(); await page.waitForSelector('.sheet', { state: 'detached' }); };
@@ -317,13 +317,15 @@ await test('T13 simultaneous raglan + V-neck + lace repeat, original text intact
 await test('Extra: explain, abbreviations, size resolution + Original, chart viewer, modifications', async () => {
   await page.evaluate(() => window.scrollTo(0, 0));
   await openInstruction(/Provisional cast on/);
-  const sizeVal = await page.locator('[data-testid=sheet-pattern] [data-size-value]').first().innerText();
-  assert(sizeVal === '54', `size L cast on should resolve to 54, got ${sizeVal}`);
+  const guidedTxt = await tid('sheet-pattern').innerText();
+  assert(/Provisional cast on 54 sts\./.test(guidedTxt), `size L cast on should read 54 sts, got: ${guidedTxt}`);
+  assert(!/\[|50, 54/.test(guidedTxt), 'other sizes visible in the guide');
   await shot('26-size-resolved');
-  await tid('toggle-original').click();
-  const orig = await tid('sheet-pattern').innerText();
-  assert(/50 \[50, 54, 54, 54, 58\]/.test(orig), 'original multi-size text not shown');
+  await tid('act-original').click();
+  const orig = await tid('original-view').innerText();
+  assert(/50 \[50, 54, 54, 54, 58\]/.test(orig), 'View Original must show the untouched multi-size text');
   await shot('27-original-numbers');
+  await page.locator('.sheet [aria-label=Back]').click();
   await tid('act-explain').click();
   await shot('28-explain');
   await page.locator('.sheet [aria-label=Back]').click();
@@ -343,7 +345,7 @@ await test('Extra: explain, abbreviations, size resolution + Original, chart vie
   await closeSheet();
   // abbreviation tap in an instruction
   await page.locator('[data-testid=instruction] .body .abbr', { hasText: /^ssk$/ }).first().scrollIntoViewIfNeeded().catch(() => {});
-  return 'cast on resolves to 54 for L; Original shows 50 [50, 54, 54, 54, 58]; explain gives plain steps';
+  return 'guide says 54 sts for L; View Original shows 50 [50, 54, 54, 54, 58]; explain gives plain steps';
 });
 
 await test('Extra: durability, taps right before reload/close are not lost', async () => {

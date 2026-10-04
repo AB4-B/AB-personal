@@ -6,11 +6,15 @@ import { importPdf, importText, type ImportResult } from '../pdf/importPdf';
 import { parseSizeList } from '../model/size';
 import type { Abbreviation, ImageKind, Pattern, ProjectSetup } from '../model/types';
 import { createProject } from '../store/store';
+import { analyzeResolution, type ReviewValue } from '../model/guide';
+import { projectFacts } from '../model/facts';
+import { ResolveSheet } from '../components/RichText';
+import type { Instruction } from '../model/types';
 import { PhotoInput, TopBar, YarnIcon } from '../ui/common';
 import { go } from '../ui/router';
 
 type Step = 'upload' | 'parsing' | 'review' | 'setup' | 'creating';
-type Tab = 'details' | 'outline' | 'images' | 'abbr';
+type Tab = 'details' | 'size' | 'outline' | 'images' | 'abbr';
 
 function Field({ label, children, id }: { label: string; children: React.ReactNode; id?: string }) {
   return <div className="field"><label htmlFor={id}>{label}</label>{children}</div>;
@@ -23,6 +27,13 @@ export function NewProject() {
   const [err, setErr] = useState('');
   const [draft, setDraft] = useState<ImportResult>();
   const [pattern, setPattern] = useState<Pattern>();
+  const [size, setSizeState] = useState('');
+  const [overrides, setOverrides] = useState<Record<string, string>>({});
+  /** a different size means different values, so hand-confirmed values are cleared with it */
+  const setSize = (z: string) => {
+    if (z !== size) setOverrides({});
+    setSizeState(z);
+  };
   const [paste, setPaste] = useState('');
   const [pasteTitle, setPasteTitle] = useState('');
 
@@ -32,6 +43,7 @@ export function NewProject() {
       const r = importText(paste, pasteTitle);
       setDraft(r);
       setPattern(r.pattern);
+      setSizeState(r.pattern.suggestedSize ?? '');
       setStep('review');
     } catch (e) {
       console.error(e);
@@ -46,6 +58,7 @@ export function NewProject() {
       const r = await importPdf(f, (m, p) => { setMsg(m); setFrac(p); });
       setDraft(r);
       setPattern(r.pattern);
+      setSizeState(r.pattern.suggestedSize ?? '');
       setStep('review');
     } catch (e) {
       console.error(e);
@@ -96,17 +109,21 @@ export function NewProject() {
   if (!pattern || !draft) return null;
 
   if (step === 'review') {
-    return <Review pattern={pattern} setPattern={setPattern} draft={draft} onContinue={() => { setPattern(finalizePattern(pattern)); setStep('setup'); }} onCancel={() => go('/')} />;
+    return <Review pattern={pattern} setPattern={setPattern} draft={draft} size={size} setSize={setSize} overrides={overrides} setOverrides={setOverrides} onContinue={() => { setPattern(finalizePattern(pattern)); setStep('setup'); }} onCancel={() => go('/')} />;
   }
   return (
     <Setup
       pattern={pattern}
       draft={draft}
+      size={size}
+      setSize={setSize}
+      overrides={overrides}
+      setOverrides={setOverrides}
       busy={step === 'creating'}
       onBack={() => setStep('review')}
       onCreate={async (input) => {
         setStep('creating');
-        const p = await createProject({ pattern, fileBlob: draft.fileBlob, imageBlobs: draft.imageBlobs, ...input });
+        const p = await createProject({ pattern, fileBlob: draft.fileBlob, imageBlobs: draft.imageBlobs, sizeOverrides: overrides, ...input });
         go(`/p/${p.id}`, true);
       }}
     />
@@ -115,10 +132,11 @@ export function NewProject() {
 
 /* ---------------------------------------------------------------- review */
 
-function Review({ pattern: p, setPattern, draft, onContinue, onCancel }: { pattern: Pattern; setPattern: (p: Pattern) => void; draft: ImportResult; onContinue: () => void; onCancel: () => void }) {
+function Review({ pattern: p, setPattern, draft, size, setSize, overrides, setOverrides, onContinue, onCancel }: { pattern: Pattern; setPattern: (p: Pattern) => void; draft: ImportResult; size: string; setSize: (z: string) => void; overrides: Record<string, string>; setOverrides: (o: Record<string, string>) => void; onContinue: () => void; onCancel: () => void }) {
   const [tab, setTab] = useState<Tab>('details');
   const [sizesText, setSizesText] = useState(p.sizes.join(', '));
-  const warnings = useMemo(() => finalizePattern(p).parse.warnings.filter((w) => w.level === 'needs-review'), [p]);
+  const fin = useMemo(() => finalizePattern(p), [p]);
+  const warnings = fin.parse.warnings.filter((w) => w.level === 'needs-review' && !/numbers but the pattern has/.test(w.message));
   const [showWarn, setShowWarn] = useState(false);
   const imgUrls = useMemo(() => Object.fromEntries(Object.entries(draft.imageBlobs).map(([k, b]) => [k, URL.createObjectURL(b)])), [draft]);
   const upd = (patch: Partial<Pattern>) => setPattern({ ...p, ...patch });
@@ -140,7 +158,7 @@ function Review({ pattern: p, setPattern, draft, onContinue, onCancel }: { patte
         )}
       </div>
       <div className="tabs" role="tablist" style={{ paddingTop: 10 }}>
-        {([['details', 'Details'], ['outline', 'Outline'], ['images', 'Charts & images'], ['abbr', 'Abbreviations']] as [Tab, string][]).map(([k, n]) => (
+        {([['details', 'Details'], ['size', 'Size check'], ['outline', 'Outline'], ['images', 'Charts & images'], ['abbr', 'Abbreviations']] as [Tab, string][]).map(([k, n]) => (
           <button key={k} role="tab" aria-selected={tab === k} className={`tab ${tab === k ? 'on' : ''}`} onClick={() => setTab(k)} data-testid={`tab-${k}`}>{n}</button>
         ))}
       </div>
@@ -173,6 +191,14 @@ function Review({ pattern: p, setPattern, draft, onContinue, onCancel }: { patte
               <Field label="Stitches"><input className="input" inputMode="decimal" value={p.gauge.stitches ?? ''} onChange={(e) => upd({ gauge: { ...p.gauge, stitches: e.target.value ? Number(e.target.value) : undefined } })} aria-label="Gauge stitches" /></Field>
               <Field label="Rows"><input className="input" inputMode="decimal" value={p.gauge.rows ?? ''} onChange={(e) => upd({ gauge: { ...p.gauge, rows: e.target.value ? Number(e.target.value) : undefined } })} aria-label="Gauge rows" /></Field>
             </div>
+          </>
+        )}
+
+        {tab === 'size' && (
+          <>
+            <p className="muted small-text" style={{ margin: 0 }}>Once you pick a size the guide becomes a single-size, metric pattern. Check that every size-dependent number could be mapped before you start knitting.</p>
+            <SizeChoice pattern={fin} size={size} setSize={setSize} />
+            <ResolutionPanel pattern={fin} size={size} overrides={overrides} setOverrides={setOverrides} />
           </>
         )}
 
@@ -260,21 +286,19 @@ function Review({ pattern: p, setPattern, draft, onContinue, onCancel }: { patte
         )}
       </div>
 
-      <div className="dock"><button className="btn primary big" style={{ flex: 1, maxWidth: 460 }} onClick={onContinue} data-testid="review-continue">LOOKS GOOD · CHOOSE SIZE</button></div>
+      <div className="dock"><button className="btn primary big" style={{ flex: 1, maxWidth: 460 }} onClick={onContinue} data-testid="review-continue">CONTINUE TO SETUP</button></div>
     </div>
   );
 }
 
 /* ----------------------------------------------------------------- setup */
 
-function Setup({ pattern, draft, busy, onBack, onCreate }: { pattern: Pattern; draft: ImportResult; busy: boolean; onBack: () => void; onCreate: (i: { name: string; size: string; setup: ProjectSetup; modification?: string; photoBlob?: Blob }) => void }) {
+function Setup({ pattern, draft, size, setSize, overrides, setOverrides, busy, onBack, onCreate }: { pattern: Pattern; draft: ImportResult; size: string; setSize: (z: string) => void; overrides: Record<string, string>; setOverrides: (o: Record<string, string>) => void; busy: boolean; onBack: () => void; onCreate: (i: { name: string; size: string; setup: ProjectSetup; modification?: string; photoBlob?: Blob }) => void }) {
   const sug = suggestSetup(pattern);
   const [name, setName] = useState(pattern.title);
-  const [size, setSize] = useState(pattern.suggestedSize && pattern.sizes.includes(pattern.suggestedSize) ? pattern.suggestedSize : '');
   const [setup, setSetup] = useState<ProjectSetup>({ yarn: sug.yarn, colour: sug.colour, needle: sug.needle, gaugeSts: '', gaugeRows: '', bodyLength: '', sleeveLength: '' });
   const [mod, setMod] = useState('');
   const [photo, setPhoto] = useState<Blob>();
-  const m0 = pattern.measurements[0];
   const photoImg = pattern.images.find((i) => i.kind === 'photo' && i.fileId && draft.imageBlobs[i.fileId]);
   const set = (k: keyof ProjectSetup) => (e: React.ChangeEvent<HTMLInputElement>) => setSetup({ ...setup, [k]: e.target.value });
   const canCreate = !!name.trim() && (pattern.sizes.length === 0 || !!size);
@@ -285,19 +309,8 @@ function Setup({ pattern, draft, busy, onBack, onCreate }: { pattern: Pattern; d
       <div className="page-pad stack" style={{ gap: 16, paddingBottom: 120 }}>
         <Field label="Project name" id="pn"><input id="pn" className="input" value={name} onChange={(e) => setName(e.target.value)} data-testid="project-name" /></Field>
 
-        <div className="field">
-          <label>Choose your size</label>
-          {pattern.suggestedSize && size === pattern.suggestedSize && <span className="tiny muted">Size {pattern.suggestedSize} was highlighted in your source. Change it if you are knitting another size.</span>}
-          {pattern.sizes.length === 0 && <div className="warnbox">No sizes were detected. Go back and add them under Details.</div>}
-          <div className="size-pick" data-testid="size-pick">
-            {pattern.sizes.map((z, i) => (
-              <button key={z} className={`size-btn ${size === z ? 'on' : ''}`} onClick={() => setSize(z)} data-testid={`size-${z}`} aria-pressed={size === z}>
-                <b>{z}</b>
-                {m0?.inches?.[i] && <span className="small-text">{m0.label} {m0.inches[i]}″{m0.cm?.[i] ? ` · ${m0.cm[i]} cm` : ''}</span>}
-              </button>
-            ))}
-          </div>
-        </div>
+        <SizeChoice pattern={pattern} size={size} setSize={setSize} />
+        <ResolutionPanel pattern={pattern} size={size} overrides={overrides} setOverrides={setOverrides} />
 
         <section className="card stack">
           <b>Your materials</b>
@@ -308,7 +321,7 @@ function Setup({ pattern, draft, busy, onBack, onCreate }: { pattern: Pattern; d
             <Field label='My stitches / 4"'><input className="input" inputMode="decimal" value={setup.gaugeSts} onChange={set('gaugeSts')} aria-label="My gauge stitches" /></Field>
             <Field label='My rows / 4"'><input className="input" inputMode="decimal" value={setup.gaugeRows} onChange={set('gaugeRows')} aria-label="My gauge rows" /></Field>
           </div>
-          <span className="tiny muted">Pattern gauge: {pattern.gauge.raw || 'not found'}</span>
+          <span className="tiny muted">Pattern gauge: {projectFacts(pattern, size || pattern.sizes[0] || '').gauge ?? 'not found'}</span>
         </section>
 
         <section className="card stack">
@@ -333,6 +346,72 @@ function Setup({ pattern, draft, busy, onBack, onCreate }: { pattern: Pattern; d
           {busy ? 'CREATING…' : 'CREATE GUIDED PROJECT'}
         </button>
       </div>
+    </div>
+  );
+}
+
+
+/* -------------------------------------------------------- size + resolution */
+
+function SizeChoice({ pattern, size, setSize }: { pattern: Pattern; size: string; setSize: (z: string) => void }) {
+  return (
+    <div className="field">
+      <label>Choose your size</label>
+      {pattern.suggestedSize && size === pattern.suggestedSize && <span className="tiny muted">Size {pattern.suggestedSize} was highlighted in your source. Change it if you are knitting another size.</span>}
+      {pattern.sizes.length === 0 && <div className="warnbox">No sizes were detected. Add them under Details.</div>}
+      <div className="size-pick" data-testid="size-pick">
+        {pattern.sizes.map((z) => {
+          const m = projectFacts(pattern, z).measurements[0];
+          return (
+            <button key={z} className={`size-btn ${size === z ? 'on' : ''}`} onClick={() => setSize(z)} data-testid={`size-${z}`} aria-pressed={size === z}>
+              <b>{z}</b>
+              {m && <span className="small-text">{m.label} {m.value}</span>}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** SIZE RESOLUTION: what could be mapped to the chosen size, and what needs the knitter. */
+function ResolutionPanel({ pattern, size, overrides, setOverrides }: { pattern: Pattern; size: string; overrides: Record<string, string>; setOverrides: (o: Record<string, string>) => void }) {
+  const [t, setT] = useState<{ ins: Instruction; review: ReviewValue }>();
+  if (!size) return <div className="warnbox" data-testid="size-resolution">Choose a size to check which numbers can be resolved.</div>;
+  const r = analyzeResolution(pattern, size, overrides);
+  const n = r.needsReview.length;
+  return (
+    <div className="card stack" data-testid="size-resolution">
+      <b>SIZE RESOLUTION · size {size}</b>
+      <div data-testid="res-ok">✓ {r.resolved} size-dependent values resolved</div>
+      {n > 0 && <div data-testid="res-warn" style={{ color: 'var(--warn-ink)', fontWeight: 700 }}>⚠ {n} need review</div>}
+      {r.hiddenInstructions > 0 && <div className="muted small-text">{r.hiddenInstructions} instruction{r.hiddenInstructions === 1 ? ' is' : 's are'} written only for other sizes and left out of your guide (still in the original).</div>}
+      {r.measurementFlags > 0 && <div style={{ color: 'var(--warn-ink)', fontWeight: 700 }}>⚠ MEASUREMENT NEEDS REVIEW ({r.measurementFlags})</div>}
+      {r.needsReview.map(({ ins, review }) => (
+        <div className="warnbox review-box stack" style={{ gap: 6 }} key={review.key} data-testid="res-item">
+          <b>⚠ SIZE VALUE NEEDS REVIEW</b>
+          <span>{review.reason}</span>
+          <span className="pat-label">Original</span>
+          <span className="pre">{ins.text}</span>
+          <button className="btn small" onClick={() => setT({ ins, review })} data-testid="res-choose">CHOOSE MY VALUE</button>
+        </div>
+      ))}
+      {n === 0 && <div className="done-banner" data-testid="res-all">✓ All size-dependent instructions resolved for Size {size}</div>}
+      {t && (
+        <ResolveSheet
+          ins={t.ins}
+          review={t.review}
+          size={size}
+          current={overrides[t.review.key]}
+          onSave={(k, v) => {
+            const next = { ...overrides };
+            if (v === null) delete next[k];
+            else next[k] = v;
+            setOverrides(next);
+          }}
+          onClose={() => setT(undefined)}
+        />
+      )}
     </div>
   );
 }

@@ -1,0 +1,46 @@
+{
+  "ran": "2026-10-04T09:50:09.486Z",
+  "results": [
+    {
+      "name": "A1 REVIEW IMPORT › Size check: choose L → SIZE RESOLUTION shows resolved + 1 needs review",
+      "pass": true,
+      "detail": "12 resolved, 1 needs review"
+    },
+    {
+      "name": "A2 the ambiguous 7-number list is NOT auto-resolved; I choose a value in Review → ✓ all resolved",
+      "pass": true,
+      "detail": "✓ All size-dependent instructions resolved for Size L"
+    },
+    {
+      "name": "A3 create the project: the guide is a single-size L pattern, no multi-size list anywhere",
+      "pass": true,
+      "detail": "42 guided rows walked"
+    },
+    {
+      "name": "A4 PROJECT DATA: selected size, metric only",
+      "pass": true,
+      "detail": "SIZE L CHEST 110 cm NEEDLES 4 mm GAUGE 16 sts × 21 rows = 10 × 10 cm YARN REQUIRED 800 m MY YARN Rowan Creative Linen DK weight yarn · 621 Natural MY NEEDLES 4 mm LENGTHS Body — · Sleeve —"
+    },
+    {
+      "name": "A5 VIEW ORIGINAL still shows the designer text, all sizes, original units",
+      "pass": true,
+      "detail": "originals unchanged"
+    },
+    {
+      "name": "B1 not resolved before knitting → the guide blocks, shows ⚠ SIZE VALUE NEEDS REVIEW + the exact original",
+      "pass": true,
+      "detail": "no automatic choice, original shown"
+    },
+    {
+      "name": "B2 resolve it in the guide → saved as a project override, survives reload, source untouched",
+      "pass": true,
+      "detail": "override saved per project; pattern text unchanged"
+    },
+    {
+      "name": "B3 start knitting, then change size: clear warning, explicit confirmation, overrides cleared",
+      "pass": true,
+      "detail": "blocked until confirmed; M values shown; override cleared"
+    }
+  ],
+  "errors": []
+}

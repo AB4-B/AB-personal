@@ -47,9 +47,9 @@ export function findSizeGroups(text: string, sizeCount: number): SizeGroup[] {
     const raw = m[2];
     const { values } = parseGroupValues(raw);
     const isBracket = /[\[(]/.test(raw);
-    // dash lists are only treated as size lists when they match the number of sizes exactly
-    // (otherwise things like "3-3-3 ..." in other contexts would raise false alarms)
-    if (!isBracket && values.length !== sizeCount) continue;
+    // short dash lists (under 4 numbers) are never treated as size lists; 4-12 numbers that do not
+    // match the number of sizes are kept and flagged, because guessing would be worse
+    if (!isBracket && values.length !== sizeCount && (values.length < 4 || values.length > 12)) continue;
     groups.push({
       start: m.index! + lead,
       end: m.index! + m[0].length,
@@ -108,6 +108,7 @@ export function parseSizeList(s: string): string[] {
 
 export function toNumber(v: string | undefined): number | undefined {
   if (v === undefined) return undefined;
+  if (!v.trim()) return undefined;
   const n = Number(v);
   return Number.isFinite(n) ? n : undefined;
 }

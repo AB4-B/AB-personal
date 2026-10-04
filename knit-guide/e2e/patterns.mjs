@@ -28,8 +28,10 @@ async function test(name, fn) {
 }
 const openSec = async (title) => { const h = page.locator('.sec-head', { hasText: title }).first(); await h.scrollIntoViewIfNeeded(); if ((await h.getAttribute('aria-expanded')) !== 'true') await h.click(); };
 async function openInstruction(re) {
-  const row = page.locator('[data-testid=instruction] .body', { hasText: re }).first();
-  await row.scrollIntoViewIfNeeded(); await row.click(); await page.waitForSelector('.sheet');
+  const row = page.locator('[data-testid=instruction]', { has: page.locator('.body', { hasText: re }) }).first();
+  await row.scrollIntoViewIfNeeded();
+  await row.getByTestId('plus').click();
+  await page.waitForSelector('.sheet');
 }
 const closeSheet = async () => { await page.locator('.sheet [aria-label=Close]').last().click(); await page.waitForTimeout(150); };
 
@@ -68,7 +70,7 @@ await test('P2 choose XL, create project, dash lists resolve (cast on 68-68-68-7
   await tid('create-project').click();
   await page.waitForSelector('[data-testid=open-instructions]');
   const pre = await tid('detail-size').innerText();
-  assert(/XL/.test(pre) && /50⅜/.test(pre), `size line: ${pre}`);
+  assert(/XL/.test(pre) && /128 cm/.test(pre) && !/inch|⅜|"/.test(pre), `size line: ${pre}`);
   assert(/ORIGINAL TEXT/.test(await tid('open-pdf').innerText()), 'button should say ORIGINAL TEXT');
   await page.evaluate(() => window.scrollTo(0, 0));
   await shot('44-paste-project');
@@ -77,7 +79,7 @@ await test('P2 choose XL, create project, dash lists resolve (cast on 68-68-68-7
   await openSec('START THE PIECE HERE');
   await openSec('LEFT BAND');
   await openInstruction(/Cast on 74 stitches at the end of this row/);
-  const val = await page.locator('[data-testid=sheet-pattern] [data-size-value]').first().innerText();
+  const val = (await tid('sheet-pattern').innerText()).match(/(?:Cast on|cast on) (\d+)/)?.[1] ?? '?';
   assert(val === '74', `resolved ${val}`);
   await shot('45-paste-dash-resolved');
   const chip = (await page.locator('[data-testid=suggestion]').allInnerTexts()).join('|');
@@ -159,29 +161,31 @@ await test('S2 size M is preselected from the print; create', async () => {
   await tid('create-project').click();
   await page.waitForSelector('[data-testid=open-instructions]');
   const sz = await tid('detail-size').innerText();
-  assert(/bust 34 in \(88 cm\)/.test(sz), `size line ${sz}`);
+  assert(/bust 88 cm/.test(sz) && !/in\b|"/.test(sz.replace('bust','')), `size line ${sz}`);
   return sz.replace(/\n/g, ' ');
 });
 
-await test('S3 dash list resolves for M; size-labelled buttonhole list highlights SIZE M; AT THE SAME TIME flagged', async () => {
+await test('S3 dash list resolves for M; buttonhole list shows ONLY size M, metric; AT THE SAME TIME flagged', async () => {
   await tid('open-instructions').click();
   await page.waitForSelector('[data-testid=outline]');
   await openSec('BODY PIECE');
   await openInstruction(/^Cast on 228 sts/);
-  const val = await page.locator('[data-testid=sheet-pattern] [data-size-value]').first().innerText();
+  const val = (await tid('sheet-pattern').innerText()).match(/(?:Cast on|cast on) (\d+)/)?.[1] ?? '?';
   assert(val === '228', `cast on for M resolved to ${val}`);
   await shot('53-sand-cast-on-M');
   await closeSheet();
   await openSec('BUTTONHOLES');
-  const sel = await page.locator('.size-line.sel').first().innerText();
-  assert(/^SIZE M:/.test(sel.trim()), `selected line: ${sel}`);
-  await page.locator('.size-line.sel').first().scrollIntoViewIfNeeded();
+  const bh = page.locator('[data-testid=instruction]', { hasText: 'Make buttonholes when piece measures' }).first();
+  await bh.scrollIntoViewIfNeeded();
+  const bt = await bh.innerText();
+  assert(/10, 18, 26 and 34 cm/.test(bt), `size M line missing: ${bt}`);
+  assert(!/SIZE [A-Z]/.test(bt) && !/16, 24|8, 15|9, 17/.test(bt) && !/["″]/.test(bt), `other sizes or inches visible: ${bt}`);
   await shot('54-sand-size-lines');
   const flagged = page.locator('[data-testid=instruction]', { hasText: 'AT THE SAME TIME' }).first();
   await flagged.scrollIntoViewIfNeeded();
   assert(await flagged.locator('[data-testid=review-badge]').count() > 0, 'AT THE SAME TIME not flagged');
   await shot('55-sand-simultaneous-flag');
-  return 'cast on 228 (M); SIZE M line highlighted; measurement-based simultaneous instructions flagged';
+  return 'cast on 228 (M); only the SIZE M buttonhole line, metric only; measurement-based simultaneous instructions flagged';
 });
 
 await test('S4 original PDF opens (4 pages)', async () => {

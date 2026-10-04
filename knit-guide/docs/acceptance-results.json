@@ -1,5 +1,5 @@
 {
-  "ran": "2026-10-04T08:56:47.870Z",
+  "ran": "2026-10-04T09:49:52.019Z",
   "viewport": "390x844 @2x iPhone emulation (Chromium)",
   "results": [
     {
@@ -10,7 +10,7 @@
     {
       "name": "T2 select one of the six sizes (L) and finish setup",
       "pass": true,
-      "detail": "size shown: L · chest 44 in (110 cm)"
+      "detail": "size shown: L · chest 110 cm"
     },
     {
       "name": "T3 open the collapsible pattern outline",
@@ -70,7 +70,7 @@
     {
       "name": "Extra: explain, abbreviations, size resolution + Original, chart viewer, modifications",
       "pass": true,
-      "detail": "cast on resolves to 54 for L; Original shows 50 [50, 54, 54, 54, 58]; explain gives plain steps"
+      "detail": "guide says 54 sts for L; View Original shows 50 [50, 54, 54, 54, 58]; explain gives plain steps"
     },
     {
       "name": "Extra: durability, taps right before reload/close are not lost",

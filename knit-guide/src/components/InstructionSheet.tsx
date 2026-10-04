@@ -1,14 +1,17 @@
 import { useState } from 'react';
-import { detectSuggestions, type Suggestion } from '../parser/detect';
 import { explain } from '../engine/explain';
-import { findSizeGroups, resolveText, toNumber } from '../model/size';
+import { guideInstruction, listSizesFor, resolveGroup, groupKey } from '../model/guide';
+import { guideCtxOf, guideNotes } from '../model/helpers';
+import { findSizeGroups, toNumber } from '../model/size';
 import type { CounterKind, Instruction, Pattern, Project } from '../model/types';
+import { detectSuggestions, type Suggestion } from '../parser/detect';
 import { addCounter, addModification, addStitchCounter, knitFromHere, toggleComplete } from '../store/store';
 import { Sheet, toast } from '../ui/common';
 import { go } from '../ui/router';
 import { CounterCard, StitchCounterCard } from './Counters';
 import { NoteCard, NoteComposer } from './Notes';
-import { RichText, useAbbrSheet } from './RichText';
+import { GuidedText, useAbbrSheet } from './RichText';
+import { useResolver } from './Resolver';
 
 type View = 'menu' | 'explain' | 'original' | 'note' | 'counter' | 'stitch' | 'mod';
 
@@ -17,16 +20,23 @@ export function suggestionsFor(ins: Instruction, pattern: Pattern): Suggestion[]
   return detectSuggestions(ins.text, pattern.sizes.length).filter((s) => !ignored.has(s.evidence));
 }
 
-/** Resolve a suggestion's target for the selected size (undefined when it cannot be resolved safely). */
-export function suggestionTarget(s: Suggestion, sizeIndex: number): number | undefined {
+/**
+ * Counter target for the selected size. Uses the knitter's confirmed value when there is one,
+ * and returns undefined (never a guess) when the list cannot be mapped safely.
+ */
+export function suggestionTarget(s: Suggestion, ins: Instruction, pattern: Pattern, project: Pick<Project, 'size' | 'sizeOverrides'>): number | undefined {
   if (!s.perSize) return toNumber(s.values[0]);
-  if (s.review) return undefined;
-  return toNumber(s.values[sizeIndex]);
+  const groups = findSizeGroups(ins.text, pattern.sizes.length);
+  const i = groups.findIndex((g) => s.evidence.includes(g.raw));
+  if (i < 0) return undefined;
+  const ov = project.sizeOverrides?.[groupKey(ins.id, i)];
+  if (ov !== undefined) return toNumber(ov);
+  const res = resolveGroup(groups[i], listSizesFor(pattern, ins), project.size);
+  return toNumber(res.value);
 }
 
 export function startSuggestion(project: Project, pattern: Pattern, ins: Instruction, s: Suggestion) {
-  const idx = pattern.sizes.indexOf(project.size);
-  const target = suggestionTarget(s, idx);
+  const target = suggestionTarget(s, ins, pattern, project);
   if (s.kind === 'stitch') {
     if (target) addStitchCounter(project.id, ins.id, target, 10, s.label);
     else addCounter(project.id, ins.id, 'stitches', s.label);
@@ -39,33 +49,27 @@ export function startSuggestion(project: Project, pattern: Pattern, ins: Instruc
 
 export function InstructionSheet({ project, pattern, ins, onClose, initialView = 'menu' }: { project: Project; pattern: Pattern; ins: Instruction; onClose: () => void; initialView?: View }) {
   const [view, setView] = useState<View>(initialView);
-  const [showOriginal, setShowOriginal] = useState(false);
   const { setTerm, sheet: abbrSheet } = useAbbrSheet();
-  const sizeIndex = pattern.sizes.indexOf(project.size);
+  const resolver = useResolver(project, pattern);
+  const ctx = guideCtxOf(pattern, project);
   const section = pattern.sections.find((s) => s.id === ins.sectionId);
   const isCurrent = project.progress.currentInstructionId === ins.id;
   const counters = project.counters.filter((c) => c.instructionId === ins.id);
   const stitchCounters = project.stitchCounters.filter((c) => c.instructionId === ins.id);
   const notes = project.notes.filter((n) => n.scope.type === 'instruction' && n.scope.instructionId === ins.id);
   const mods = project.modifications.filter((m) => m.instructionId === ins.id);
-  const hasGroups = findSizeGroups(ins.text, pattern.sizes.length).length > 0;
   const suggestions = suggestionsFor(ins, pattern);
   const done = project.progress.completed.includes(ins.id);
   const goBack = view === 'menu' ? undefined : () => setView('menu');
+  const notesForGuide = guideNotes(ins);
 
-  const titles: Record<View, string> = { menu: section?.title ?? 'Instruction', explain: 'Explain this', original: 'Original', note: 'Add note', counter: 'Add counter', stitch: 'Add stitch counter', mod: 'My modification' };
+  const titles: Record<View, string> = { menu: section?.title ?? 'Instruction', explain: 'Explain this', original: 'View original', note: 'Add note', counter: 'Add counter', stitch: 'Add stitch counter', mod: 'My modification' };
 
   const patternBlock = (
     <div className="card" data-testid="sheet-pattern">
-      <span className="pat-label">Pattern</span>
-      <RichText text={ins.text} pattern={pattern} sizeIndex={sizeIndex} original={showOriginal} onTerm={setTerm} />
-      {hasGroups && (
-        <div className="row" style={{ marginTop: 8 }}>
-          <button className="chip" onClick={() => setShowOriginal((v) => !v)} data-testid="toggle-original">{showOriginal ? `Show size ${project.size}` : 'Original'}</button>
-          <span className="tiny muted">{showOriginal ? 'Designer’s text, all sizes' : `Numbers for size ${project.size} highlighted`}</span>
-        </div>
-      )}
-      {ins.review && <div className="warnbox" style={{ marginTop: 8 }}><span className="badge review">NEEDS REVIEW</span><br />{ins.review.join(' ')}</div>}
+      <span className="pat-label">Pattern · size {project.size}</span>
+      <GuidedText ins={ins} ctx={ctx} onTerm={setTerm} onResolve={resolver.open} />
+      {notesForGuide.length > 0 && <div className="warnbox" style={{ marginTop: 8 }}><span className="badge review">NEEDS REVIEW</span><br />{notesForGuide.join(' ')}</div>}
     </div>
   );
 
@@ -91,7 +95,7 @@ export function InstructionSheet({ project, pattern, ins, onClose, initialView =
                 <span className="caps">Detected in this instruction</span>
                 <div className="chips" style={{ marginTop: 0 }}>
                   {suggestions.map((s, i) => {
-                    const t = suggestionTarget(s, sizeIndex);
+                    const t = suggestionTarget(s, ins, pattern, project);
                     return (
                       <button key={i} className="chip suggest" data-testid="suggestion" onClick={() => startSuggestion(project, pattern, ins, s)}>
                         {s.kind === 'stitch' ? `START STITCH COUNTER: ${t ?? '?'}` : `${s.kind === 'times' ? 'REPEAT' : s.kind === 'rows' ? 'ROW' : 'ROUND'} COUNTER${t ? `: ${t}` : ''}`}
@@ -124,7 +128,7 @@ export function InstructionSheet({ project, pattern, ins, onClose, initialView =
             )}
           </>
         )}
-        {view === 'explain' && <ExplainView ins={ins} pattern={pattern} project={project} sizeIndex={sizeIndex} />}
+        {view === 'explain' && <ExplainView ins={ins} pattern={pattern} project={project} onViewOriginal={() => setView('original')} />}
         {view === 'original' && (
           <div className="stack" data-testid="original-view">
             <div className="card">
@@ -141,34 +145,34 @@ export function InstructionSheet({ project, pattern, ins, onClose, initialView =
           </>
         )}
         {view === 'counter' && <CounterForm project={project} ins={ins} onDone={() => setView('menu')} />}
-        {view === 'stitch' && <StitchForm project={project} pattern={pattern} ins={ins} sizeIndex={sizeIndex} onDone={() => setView('menu')} />}
-        {view === 'mod' && <ModForm project={project} ins={ins} original={ins.text} onDone={() => setView('menu')} />}
+        {view === 'stitch' && <StitchForm project={project} pattern={pattern} ins={ins} onDone={() => setView('menu')} />}
+        {view === 'mod' && <ModForm project={project} ins={ins} guided={guideInstruction(ins, ctx).plain} onDone={() => setView('menu')} />}
       </Sheet>
       {abbrSheet}
+      {resolver.sheet}
     </>
   );
 }
 
-function ExplainView({ ins, pattern, project, sizeIndex }: { ins: Instruction; pattern: Pattern; project: Project; sizeIndex: number }) {
-  const resolved = resolveText(ins.text, pattern.sizes, sizeIndex);
-  const notes = findSizeGroups(ins.text, pattern.sizes.length).filter((g) => g.matchesSizes).map((g) => `${g.raw} → ${g.values[sizeIndex]} for size ${project.size}`);
-  const ex = explain(resolved, pattern.abbreviations, notes);
+function ExplainView({ ins, pattern, project, onViewOriginal }: { ins: Instruction; pattern: Pattern; project: Project; onViewOriginal: () => void }) {
+  const guided = guideInstruction(ins, guideCtxOf(pattern, project));
+  const ex = explain(guided.plain, pattern.abbreviations, []);
   const { setTerm, sheet } = useAbbrSheet();
   return (
     <div className="stack" data-testid="explain-view">
       <div className="card">
-        <span className="pat-label">Original pattern</span>
-        <div className="pre">{ins.text}</div>
+        <span className="pat-label">Pattern · size {project.size}</span>
+        <div className="pre">{guided.plain}</div>
+        <button className="btn ghost small" style={{ minHeight: 32, padding: 0 }} onClick={onViewOriginal}>View original</button>
       </div>
       <div className="card flat">
         <span className="pat-label guide">Guidance · generated by Knit Guide, not written by the designer</span>
-        {ex.notes.length > 0 && <ul style={{ margin: '4px 0', paddingLeft: 20 }}>{ex.notes.map((n, i) => <li key={i}>{n}</li>)}</ul>}
         {ex.steps.length > 0 ? (
           <ol style={{ margin: '6px 0', paddingLeft: 22 }} data-testid="explain-steps">{ex.steps.map((s, i) => <li key={i} style={{ marginBottom: 4 }}>{s}</li>)}</ol>
         ) : (
           <p className="muted" style={{ margin: '6px 0' }}>This instruction is written as prose, so there is no step list. Read the terms below, or the original.</p>
         )}
-        {ex.untranslated.length > 0 && ex.steps.length > 0 && <p className="small-text muted">Some wording could not be translated automatically. The original above is the reference.</p>}
+        {ex.untranslated.length > 0 && ex.steps.length > 0 && <p className="small-text muted">Some wording could not be translated automatically. View the original for the designer's wording.</p>}
       </div>
       {ex.terms.length > 0 && (
         <div className="stack" style={{ gap: 6 }}>
@@ -198,9 +202,9 @@ function CounterForm({ project, ins, onDone }: { project: Project; ins: Instruct
   );
 }
 
-function StitchForm({ project, pattern, ins, sizeIndex, onDone }: { project: Project; pattern: Pattern; ins: Instruction; sizeIndex: number; onDone: () => void }) {
+function StitchForm({ project, pattern, ins, onDone }: { project: Project; pattern: Pattern; ins: Instruction; onDone: () => void }) {
   const stitchSuggestion = suggestionsFor(ins, pattern).find((s) => s.kind === 'stitch');
-  const pre = stitchSuggestion ? suggestionTarget(stitchSuggestion, sizeIndex) : undefined;
+  const pre = stitchSuggestion ? suggestionTarget(stitchSuggestion, ins, pattern, project) : undefined;
   const [target, setTarget] = useState(pre ? String(pre) : '');
   const [group, setGroup] = useState(10);
   const [custom, setCustom] = useState('');
@@ -219,11 +223,11 @@ function StitchForm({ project, pattern, ins, sizeIndex, onDone }: { project: Pro
   );
 }
 
-function ModForm({ project, ins, original, onDone }: { project: Project; ins: Instruction; original: string; onDone: () => void }) {
+function ModForm({ project, ins, guided, onDone }: { project: Project; ins: Instruction; guided: string; onDone: () => void }) {
   const [text, setText] = useState('');
   return (
     <div className="stack">
-      <div className="card"><span className="pat-label">Pattern</span><div className="pre">{original}</div></div>
+      <div className="card"><span className="pat-label">Pattern · size {project.size}</span><div className="pre">{guided}</div></div>
       <div className="field"><label htmlFor="mm">My modification</label><textarea id="mm" className="textarea" value={text} onChange={(e) => setText(e.target.value)} placeholder="e.g. Make this a long cardigan. Aim for mid-thigh." data-testid="mod-text" /></div>
       <button className="btn primary" disabled={!text.trim()} onClick={() => { addModification(project.id, ins.id, text.trim()); onDone(); }}>SAVE MODIFICATION</button>
       <p className="muted small-text">Stored beside the pattern. The designer's instruction stays exactly as written.</p>

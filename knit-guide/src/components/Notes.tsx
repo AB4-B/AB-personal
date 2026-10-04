@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { findInstruction, formatWhen, sectionTitle } from '../model/helpers';
+import { guidePlain } from '../model/guide';
+import { findInstruction, formatWhen, guideCtxOf, sectionTitle } from '../model/helpers';
 import type { Note, NoteScope, Pattern, Project } from '../model/types';
 import { addNote, deleteNote, editNote } from '../store/store';
 import { ConfirmButton } from '../ui/common';
 
-export function scopeLabel(n: Note, pattern: Pattern): string {
+export function scopeLabel(n: Note, pattern: Pattern, project: Project): string {
   switch (n.scope.type) {
     case 'project':
       return 'Project';
@@ -14,7 +15,8 @@ export function scopeLabel(n: Note, pattern: Pattern): string {
       return `Section: ${sectionTitle(pattern, n.scope.sectionId)}`;
     case 'instruction': {
       const ins = findInstruction(pattern, n.scope.instructionId);
-      return `Instruction: ${ins ? ins.text.slice(0, 36) + (ins.text.length > 36 ? '…' : '') : ''}`;
+      const t = ins ? guidePlain(ins, guideCtxOf(pattern, project)).replace(/\s+/g, ' ') : '';
+      return `Instruction: ${t.slice(0, 36)}${t.length > 36 ? '…' : ''}`;
     }
   }
 }
@@ -46,7 +48,7 @@ export function NoteCard({ project, pattern, note, showScope = true }: { project
   return (
     <div className="note" data-testid="note">
       <div className="grow">
-        {showScope && <div className="scope">{scopeLabel(note, pattern)}</div>}
+        {showScope && <div className="scope">{scopeLabel(note, pattern, project)}</div>}
         <div>{note.text}</div>
         <div className="when">{formatWhen(note.createdAt)}{note.updatedAt > note.createdAt + 1000 ? ' (edited)' : ''}</div>
       </div>

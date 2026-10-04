@@ -1,5 +1,5 @@
 {
-  "ran": "2026-10-04T08:56:55.463Z",
+  "ran": "2026-10-04T09:50:00.083Z",
   "results": [
     {
       "name": "P1 paste the website text → review",
@@ -34,12 +34,12 @@
     {
       "name": "S2 size M is preselected from the print; create",
       "pass": true,
-      "detail": "M · bust 34 in (88 cm)"
+      "detail": "M · bust 88 cm"
     },
     {
-      "name": "S3 dash list resolves for M; size-labelled buttonhole list highlights SIZE M; AT THE SAME TIME flagged",
+      "name": "S3 dash list resolves for M; buttonhole list shows ONLY size M, metric; AT THE SAME TIME flagged",
       "pass": true,
-      "detail": "cast on 228 (M); SIZE M line highlighted; measurement-based simultaneous instructions flagged"
+      "detail": "cast on 228 (M); only the SIZE M buttonhole line, metric only; measurement-based simultaneous instructions flagged"
     },
     {
       "name": "S4 original PDF opens (4 pages)",

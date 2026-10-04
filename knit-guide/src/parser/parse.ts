@@ -3,6 +3,8 @@
  * Generic heuristics only (labels, headings, "Row n:" lists, size groups). Nothing here
  * knows about any specific pattern. Uncertainty is recorded as parse warnings.
  */
+import { needlesMm } from '../model/facts';
+import { computeAppliesTo } from '../model/guide';
 import { uid } from '../model/helpers';
 import { findSizeGroups, parseSizeList } from '../model/size';
 import {
@@ -605,7 +607,8 @@ export function parsePattern(pages: RawPage[], opts: ParseOptions): Pattern {
     }
   }
 
-  const { trackers } = detectTrackers(sections, instructions, stitchPatterns, sizeCount);
+  computeAppliesTo(sections, sizes);
+  const { trackers } = detectTrackers(sections, instructions, stitchPatterns, sizes);
   for (const w of flagUnmodelledSimultaneous(instructions, trackers)) warn('needs-review', w.message, { instructionId: w.id, page: w.page });
   for (const t of trackers) {
     for (const r of t.review) warn('needs-review', `${t.title}: ${r}`, { page: instructions.find((i) => i.trackerId === t.id)?.source.page });
@@ -649,10 +652,7 @@ export function parsePattern(pages: RawPage[], opts: ParseOptions): Pattern {
 export function suggestSetup(p: Pattern) {
   const yarn = p.yarn.description.split(/[(,]/)[0].trim();
   const colour = p.yarn.description.match(/colou?r\s+(?:no\.?\s*)?(.+?)(?:\s+[-–]\s+\d|\s+\d[\d\s-]*\s?g\b|$)/i)?.[1]?.trim() ?? '';
-  const needle =
-    p.needles.match(/US\s*[\d.]+\s*\([\d.]+\s*mm\)/i)?.[0] ??
-    p.needles.match(/[\d.]+\s*mm\s*(?:=|\/)\s*US\s*[\d.]+/i)?.[0] ??
-    p.needles.split(/\.\s|\n/)[0];
+  const needle = needlesMm(p.needles)?.split(', ')[0] ?? '';
   return { yarn, colour, needle };
 }
 

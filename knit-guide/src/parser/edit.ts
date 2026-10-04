@@ -3,6 +3,7 @@
  * structure* (boundaries, headings), never the PDF. Instruction text can be corrected
  * by the user, but the source lines from the PDF stay attached for comparison.
  */
+import { computeAppliesTo } from '../model/guide';
 import { uid } from '../model/helpers';
 import type { Instruction, Pattern, ParseWarning } from '../model/types';
 import { detectTrackers, flagUnmodelledSimultaneous, sizeMismatchReasons } from './detect';
@@ -134,7 +135,8 @@ export function finalizePattern(p: Pattern): Pattern {
     if (!ins.review.length) ins.review = undefined;
     else warn(ins.review.join(' '), { instructionId: ins.id, page: ins.source.page });
   }
-  const { trackers } = detectTrackers(out.sections, out.instructions, out.stitchPatterns, sizeCount);
+  computeAppliesTo(out.sections, out.sizes);
+  const { trackers } = detectTrackers(out.sections, out.instructions, out.stitchPatterns, out.sizes);
   out.trackers = trackers;
   for (const t of trackers) for (const r of t.review) warn(`${t.title}: ${r}`);
   for (const w of flagUnmodelledSimultaneous(out.instructions, trackers)) warn(w.message, { instructionId: w.id, page: w.page });
