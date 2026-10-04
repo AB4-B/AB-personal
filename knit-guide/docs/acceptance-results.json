@@ -1,0 +1,102 @@
+{
+  "ran": "2026-10-04T08:34:52.007Z",
+  "viewport": "390x844 @2x iPhone emulation (Chromium)",
+  "results": [
+    {
+      "name": "T1 create project from the cardigan PDF (upload → parse → review)",
+      "pass": true,
+      "detail": "review screen shown, 9 images found"
+    },
+    {
+      "name": "T2 select one of the six sizes (L) and finish setup",
+      "pass": true,
+      "detail": "size shown: L · chest 44 in (110 cm)"
+    },
+    {
+      "name": "T3 open the collapsible pattern outline",
+      "pass": true,
+      "detail": "sections: Project Data | For Reference | Pattern notes | Cardigan | Divide for sleeves | Sleeve | Button Band"
+    },
+    {
+      "name": "T4 choose a yoke instruction → KNIT FROM HERE",
+      "pass": true,
+      "detail": "highlighted with NOW KNITTING tag"
+    },
+    {
+      "name": "T5 browse elsewhere → TO CURRENT INSTRUCTION returns to it",
+      "pass": true,
+      "detail": "current instruction scrolled into view"
+    },
+    {
+      "name": "T6 attach a repeat counter to an instruction",
+      "pass": true,
+      "detail": "Repeat 3 / 13 (suggested chips: REPEAT COUNTER: 13)"
+    },
+    {
+      "name": "T7 stitch counter: target 164, group 10 → 16 groups + 4 = 164/164",
+      "pass": true,
+      "detail": "16 × 10 + 4 = 164 · ✓ 164/164 COMPLETE"
+    },
+    {
+      "name": "T8 add note \"Stopped after second marker.\"",
+      "pass": true,
+      "detail": "note saved on the instruction"
+    },
+    {
+      "name": "T9 Quick Stop",
+      "pass": true,
+      "detail": "stopping point + note saved"
+    },
+    {
+      "name": "T10 close/reload the application",
+      "pass": true,
+      "detail": "reloaded, then closed tab and opened a new one"
+    },
+    {
+      "name": "T11 resume project: exact instruction, counters, stitch count, note, size, modification",
+      "pass": true,
+      "detail": "same instruction (ins-i11), 16 × 10 + 4 = 164, repeat 3 / 13, note + size + modification restored"
+    },
+    {
+      "name": "T12 open original PDF and return without losing progress",
+      "pass": true,
+      "detail": "viewer showed PAGE 3/7; reopened on PAGE 3/7; progress intact"
+    },
+    {
+      "name": "T13 simultaneous raglan + V-neck + lace repeat, original text intact",
+      "pass": true,
+      "detail": "row 17: lace 1/4 + raglan + V-neck (5 of 13); row 18: lace 2/4, no increases; source text byte-identical"
+    },
+    {
+      "name": "Extra: explain, abbreviations, size resolution + Original, chart viewer, modifications",
+      "pass": true,
+      "detail": "cast on resolves to 54 for L; Original shows 50 [50, 54, 54, 54, 58]; explain gives plain steps"
+    },
+    {
+      "name": "Extra: durability, taps right before reload/close are not lost",
+      "pass": true,
+      "detail": "3 → 8 after 5 taps + instant reload"
+    },
+    {
+      "name": "Extra: section note + accidental-reset protection",
+      "pass": true,
+      "detail": "section note saved; first tap on Reset only arms it"
+    },
+    {
+      "name": "Extra: chart viewer opens, zooms, returns to current",
+      "pass": true,
+      "detail": "scale 0.35 → 0.69"
+    },
+    {
+      "name": "Extra: works offline after first load (PWA)",
+      "pass": true,
+      "detail": "project + original PDF open with the network off"
+    },
+    {
+      "name": "Extra: home screen with project",
+      "pass": true,
+      "detail": "ok"
+    }
+  ],
+  "consoleErrors": []
+}
