@@ -13,6 +13,7 @@ export interface Repo {
   putFile(id: string, blob: Blob): Promise<void>;
   getFile(id: string): Promise<Blob | undefined>;
   deleteFile(id: string): Promise<void>;
+  allFiles(): Promise<{ id: string; blob: Blob }[]>;
 }
 
 const DB_NAME = 'knit-guide';
@@ -73,6 +74,11 @@ class IdbRepo implements Repo {
   async deleteFile(id: string) {
     await this.tx('files', 'readwrite', (s) => s.delete(id));
   }
+  async allFiles() {
+    const keys = (await this.tx('files', 'readonly', (s) => s.getAllKeys())) as string[];
+    const blobs = (await this.tx('files', 'readonly', (s) => s.getAll())) as Blob[];
+    return keys.map((id, i) => ({ id, blob: blobs[i] }));
+  }
 }
 
 /** Fallback when IndexedDB is unavailable (e.g. some private modes): works for the session only. */
@@ -90,6 +96,7 @@ class MemoryRepo implements Repo {
   async putFile(id: string, b: Blob) { this.files.set(id, b); }
   async getFile(id: string) { return this.files.get(id); }
   async deleteFile(id: string) { this.files.delete(id); }
+  async allFiles() { return [...this.files].map(([id, blob]) => ({ id, blob })); }
 }
 
 export function createRepo(): Repo {

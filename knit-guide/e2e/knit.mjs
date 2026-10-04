@@ -483,6 +483,37 @@ await test('GENERAL cm jacket: swatch gives row ESTIMATES; measuring makes event
   return 'ok';
 });
 
+await test('BACKUP: automatic copy is taken, a backup file downloads, and both restore a deleted project', async () => {
+  await createFromPaste(readFileSync('fixtures/synthetic-scarf.txt', 'utf8'), 'One size', 'Backup scarf');
+  await page.goto(BASE); await page.waitForSelector('[data-testid=project-card]');
+  await tid('backup-due').waitFor();
+  await page.waitForFunction(() => /\d+ project/.test(document.querySelector('[data-testid=backup-status]')?.textContent ?? ''), null, { timeout: 15000 }).catch(() => {});
+  await page.reload(); await page.waitForSelector('[data-testid=backup-panel]');
+  await page.waitForTimeout(4500); await page.reload(); await page.waitForSelector('[data-testid=backup-panel]');
+  assert(/1 project/.test(await tid('backup-status').innerText()), `automatic copy not shown: ${await tid('backup-status').innerText()}`);
+  // file backup (desktop-style download in the test browser)
+  const [dl] = await Promise.all([page.waitForEvent('download'), tid('backup-save').click()]);
+  assert(dl.suggestedFilename() === 'knit-guide-backup.json', dl.suggestedFilename());
+  await dl.saveAs('/tmp/kg-backup-test.json');
+  const body = JSON.parse(readFileSync('/tmp/kg-backup-test.json', 'utf8'));
+  assert(body.app === 'knit-guide' && body.projects.length >= 1 && body.files.length >= 1, 'file content');
+  await page.waitForSelector('[data-testid=backup-msg]');
+  assert(!(await tid('backup-due').count()), 'reminder should clear after saving the file');
+  // delete the project, restore from the file
+  await page.getByLabel(/Options for Backup scarf/).first().click();
+  await page.getByText('Delete project…').click(); await page.getByText(/Tap again: delete project/).click(); await page.waitForTimeout(400);
+  assert(!(await page.locator('[data-testid=project-card]', { hasText: 'Backup scarf' }).count()), 'project deleted');
+  await tid('backup-file-input').setInputFiles('/tmp/kg-backup-test.json');
+  await page.locator('[data-testid=project-card]', { hasText: 'Backup scarf' }).waitFor({ timeout: 10000 });
+  // delete again, restore from the automatic copy
+  await page.getByLabel(/Options for Backup scarf/).first().click();
+  await page.getByText('Delete project…').click(); await page.getByText(/Tap again: delete project/).click(); await page.waitForTimeout(400);
+  assert(!(await page.locator('[data-testid=project-card]', { hasText: 'Backup scarf' }).count()), 'deleted again');
+  await page.getByText('Restore automatic copy').click(); await page.getByText('Tap again to restore').click();
+  await page.locator('[data-testid=project-card]', { hasText: 'Backup scarf' }).waitFor({ timeout: 10000 });
+  return 'file + automatic copy restore';
+});
+
 /* ------------------- Flax (Tin Can Knits): 19 sizes, two columns, size subsets. Local fixture only. */
 const FLAX = 'fixtures/flax-worsted.pdf';
 if (existsSync(FLAX)) {
