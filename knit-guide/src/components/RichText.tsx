@@ -29,6 +29,26 @@ export function RichText({ text, pattern, sizeIndex, original, onTerm }: { text:
     );
 
   if (original) return <span className="pre">{terms(text, 'o')}</span>;
+  // "SIZE S: ..., SIZE M: ..." lists: keep all lines, emphasise the selected size's line
+  const lines = text.split('\n');
+  if (lines.filter((l) => /^sizes?\s+\S+\s*:/i.test(l)).length >= 3) {
+    const mine = pattern.sizes[sizeIndex];
+    return (
+      <span className="pre">
+        {lines.map((l, i) => {
+          const m = l.match(/^sizes?\s+(\S+?)\s*:/i);
+          const dim = !!m && !!mine && m[1].toUpperCase() !== mine.toUpperCase();
+          const sel = !!m && !dim;
+          return (
+            <span key={i} className={sel ? 'size-line sel' : dim ? 'size-line dim' : undefined}>
+              {terms(l, `l${i}`)}
+              {i < lines.length - 1 ? '\n' : ''}
+            </span>
+          );
+        })}
+      </span>
+    );
+  }
   const parts = splitBySizeGroups(text, pattern.sizes, sizeIndex);
   return (
     <span className="pre">

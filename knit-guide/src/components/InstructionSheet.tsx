@@ -128,11 +128,11 @@ export function InstructionSheet({ project, pattern, ins, onClose, initialView =
         {view === 'original' && (
           <div className="stack" data-testid="original-view">
             <div className="card">
-              <span className="pat-label">Original pattern · PDF page {ins.source.page}</span>
+              <span className="pat-label">Original pattern · {pattern.sourceType === 'text' ? 'pasted text' : `PDF page ${ins.source.page}`}</span>
               <div className="pre">{ins.source.lines.length ? ins.source.lines.join('\n') : ins.text}</div>
             </div>
             {ins.source.imageIds.map((id) => <button key={id} className="btn soft" onClick={() => go(`/p/${project.id}/chart/${id}`)}>Open {pattern.images.find((i) => i.id === id)?.title}</button>)}
-            <button className="btn primary" onClick={() => go(`/p/${project.id}/pdf?page=${ins.source.page}`)} data-testid="open-source-page">OPEN PDF PAGE {ins.source.page}</button>
+            <button className="btn primary" onClick={() => go(`/p/${project.id}/pdf?page=${ins.source.page}`)} data-testid="open-source-page">{pattern.sourceType === 'text' ? 'OPEN ORIGINAL TEXT' : `OPEN PDF PAGE ${ins.source.page}`}</button>
           </div>
         )}
         {view === 'note' && (

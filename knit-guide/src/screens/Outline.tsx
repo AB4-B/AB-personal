@@ -4,7 +4,7 @@ import { InstructionSheet, startSuggestion, suggestionTarget, suggestionsFor } f
 import { NoteCard, NoteComposer } from '../components/Notes';
 import { RichText, useAbbrSheet } from '../components/RichText';
 import { TrackerCard } from '../components/TrackerCard';
-import { counterText, findInstruction, formatWhen, isActionable } from '../model/helpers';
+import { counterText, findInstruction, formatWhen, isActionable, isTextSource } from '../model/helpers';
 import type { Instruction, Pattern, PatternImage, Project, Section } from '../model/types';
 import { attachStopNote, finishAndAdvance, quickStop, setExpanded, toggleComplete, useStore } from '../store/store';
 import { IconChevron, IconPdf, IconPin, IconPlus, IconStop, Sheet, ToastHost, TopBar, toast, useBlobUrl } from '../ui/common';
@@ -208,7 +208,7 @@ export function Outline({ projectId }: { projectId: string }) {
       <TopBar
         title={pattern.title}
         onBack={() => go(`/p/${project.id}`)}
-        right={<button className="iconbtn" aria-label="Original PDF" onClick={() => go(`/p/${project.id}/pdf`)} data-testid="topbar-pdf"><IconPdf /></button>}
+        right={<button className="iconbtn" aria-label={isTextSource(pattern) ? 'Original text' : 'Original PDF'} onClick={() => go(`/p/${project.id}/pdf`)} data-testid="topbar-pdf"><IconPdf /></button>}
       />
       <div className="outline" data-testid="outline">
         <div className="row wrap" style={{ padding: '0 4px 4px' }}>
@@ -221,7 +221,7 @@ export function Outline({ projectId }: { projectId: string }) {
           <div style={{ padding: 14 }}>
             <dl className="kv">
               <dt>Pattern</dt><dd>{pattern.title}{pattern.designer ? ` · ${pattern.designer}` : ''}</dd>
-              <dt>Size</dt><dd><b>{project.size}</b>{pattern.measurements[0]?.inches?.[sizeIdx] ? ` · chest ${pattern.measurements[0].inches[sizeIdx]} in` : ''}</dd>
+              <dt>Size</dt><dd><b>{project.size}</b>{pattern.measurements[0]?.inches?.[sizeIdx] ? ` · ${pattern.measurements[0].label.toLowerCase()} ${pattern.measurements[0].inches[sizeIdx]} in` : ''}</dd>
               <dt>Yarn</dt><dd>{[project.setup.yarn, project.setup.colour].filter(Boolean).join(' · ') || '—'}</dd>
               <dt>Needles</dt><dd>{project.setup.needle || '—'}</dd>
               <dt>Gauge</dt><dd>{pattern.gauge.raw || '—'}</dd>

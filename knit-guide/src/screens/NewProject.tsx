@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { detectSuggestions } from '../parser/detect';
 import { editText, finalizePattern, ignoreSuggestion, mergeWithNext, removeSection, renameSection, setKind, setSectionLevel, splitInstruction, startSectionHere } from '../parser/edit';
 import { suggestSetup } from '../parser/parse';
-import { importPdf, type ImportResult } from '../pdf/importPdf';
+import { importPdf, importText, type ImportResult } from '../pdf/importPdf';
 import { parseSizeList } from '../model/size';
 import type { Abbreviation, ImageKind, Pattern, ProjectSetup } from '../model/types';
 import { createProject } from '../store/store';
@@ -23,6 +23,21 @@ export function NewProject() {
   const [err, setErr] = useState('');
   const [draft, setDraft] = useState<ImportResult>();
   const [pattern, setPattern] = useState<Pattern>();
+  const [paste, setPaste] = useState('');
+  const [pasteTitle, setPasteTitle] = useState('');
+
+  const onPaste = () => {
+    setErr('');
+    try {
+      const r = importText(paste, pasteTitle);
+      setDraft(r);
+      setPattern(r.pattern);
+      setStep('review');
+    } catch (e) {
+      console.error(e);
+      setErr(e instanceof Error ? e.message : 'Could not read this text.');
+    }
+  };
 
   const onFile = async (f: File) => {
     setErr('');
@@ -61,6 +76,17 @@ export function NewProject() {
               </div>
             )}
           </div>
+          {step === 'upload' && (
+            <div className="card stack">
+              <h2>Or paste the pattern text</h2>
+              <p className="muted small-text" style={{ margin: 0 }}>
+                For patterns you can't download. Copy the whole pattern page (sizes, yarn, gauge and instructions) and paste it here. Your pasted text is kept exactly as pasted; menus, ads and repeated banners are only hidden from the guide.
+              </p>
+              <textarea className="textarea" style={{ minHeight: 150 }} placeholder="Paste pattern text here" value={paste} onChange={(e) => setPaste(e.target.value)} data-testid="paste-input" aria-label="Pasted pattern text" />
+              <input className="input" placeholder="Pattern name (optional)" value={pasteTitle} onChange={(e) => setPasteTitle(e.target.value)} aria-label="Pattern name" />
+              <button className="btn primary" disabled={paste.trim().length < 80} onClick={onPaste} data-testid="paste-read">READ PASTED TEXT</button>
+            </div>
+          )}
           {err && <div className="warnbox">{err}</div>}
           <p className="muted small-text">Parsing is rule-based and runs offline in your browser. It will not be perfect, so you review it before knitting.</p>
         </div>
@@ -214,7 +240,7 @@ function Review({ pattern: p, setPattern, draft, onContinue, onCancel }: { patte
                 </div>
               </div>
             ))}
-            {p.images.length === 0 && <div className="empty">No images found.</div>}
+            {p.images.length === 0 && <div className="empty">{p.sourceType === 'text' ? 'Pasted text has no images.' : 'No images found.'}</div>}
           </>
         )}
 
@@ -244,7 +270,7 @@ function Review({ pattern: p, setPattern, draft, onContinue, onCancel }: { patte
 function Setup({ pattern, draft, busy, onBack, onCreate }: { pattern: Pattern; draft: ImportResult; busy: boolean; onBack: () => void; onCreate: (i: { name: string; size: string; setup: ProjectSetup; modification?: string; photoBlob?: Blob }) => void }) {
   const sug = suggestSetup(pattern);
   const [name, setName] = useState(pattern.title);
-  const [size, setSize] = useState('');
+  const [size, setSize] = useState(pattern.suggestedSize && pattern.sizes.includes(pattern.suggestedSize) ? pattern.suggestedSize : '');
   const [setup, setSetup] = useState<ProjectSetup>({ yarn: sug.yarn, colour: sug.colour, needle: sug.needle, gaugeSts: '', gaugeRows: '', bodyLength: '', sleeveLength: '' });
   const [mod, setMod] = useState('');
   const [photo, setPhoto] = useState<Blob>();
@@ -261,6 +287,7 @@ function Setup({ pattern, draft, busy, onBack, onCreate }: { pattern: Pattern; d
 
         <div className="field">
           <label>Choose your size</label>
+          {pattern.suggestedSize && size === pattern.suggestedSize && <span className="tiny muted">Size {pattern.suggestedSize} was highlighted in your source. Change it if you are knitting another size.</span>}
           {pattern.sizes.length === 0 && <div className="warnbox">No sizes were detected. Go back and add them under Details.</div>}
           <div className="size-pick" data-testid="size-pick">
             {pattern.sizes.map((z, i) => (

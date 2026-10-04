@@ -5,8 +5,8 @@
  */
 import { uid } from '../model/helpers';
 import type { Instruction, Pattern, ParseWarning } from '../model/types';
-import { detectTrackers, sizeMismatchReasons } from './detect';
-import { splitAtSentences } from './parse';
+import { detectTrackers, flagUnmodelledSimultaneous, sizeMismatchReasons } from './detect';
+import { groupHeadings, splitAtSentences } from './parse';
 
 const clone = <T,>(x: T): T => structuredClone(x);
 
@@ -121,6 +121,7 @@ export function finalizePattern(p: Pattern): Pattern {
   const out = clone(p);
   out.instructions = out.instructions.filter((i) => i.kind !== 'tracker');
   out.trackers = [];
+  groupHeadings(out.sections, out.instructions);
   const sizeCount = out.sizes.length;
   const warnings: ParseWarning[] = out.parse.warnings.filter((w) => w.level === 'info' && !w.instructionId);
   let n = 0;
@@ -136,6 +137,7 @@ export function finalizePattern(p: Pattern): Pattern {
   const { trackers } = detectTrackers(out.sections, out.instructions, out.stitchPatterns, sizeCount);
   out.trackers = trackers;
   for (const t of trackers) for (const r of t.review) warn(`${t.title}: ${r}`);
+  for (const w of flagUnmodelledSimultaneous(out.instructions, trackers)) warn(w.message, { instructionId: w.id, page: w.page });
   out.parse.warnings = warnings;
   return out;
 }

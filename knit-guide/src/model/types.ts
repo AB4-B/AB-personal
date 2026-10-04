@@ -22,6 +22,11 @@ export interface Pattern {
   fileId: string;
   fileName: string;
   pageCount: number;
+  /** 'pdf' = uploaded file, 'text' = pasted text (original text is stored as the source file) */
+  sourceType?: 'pdf' | 'text';
+  /** size the source page had highlighted, e.g. a DROPS print for size M */
+  suggestedSize?: string;
+  notions?: string;
 
   title: string;
   designer: string;
@@ -89,7 +94,7 @@ export interface StitchPattern {
   name: string;
   unit: 'row' | 'round' | 'text';
   /** Rows exactly as written. Empty for plain-text stitch patterns. */
-  rows: { n: number; text: string }[];
+  rows: { n: number; text: string; side?: string }[];
   /** Verbatim text for 'text' patterns */
   text?: string;
   repeatFrom?: number;
@@ -176,6 +181,8 @@ export interface TrackerInterval {
   firstAssumed: boolean;
   excerpt: string;
   sourceInstructionId: string;
+  /** several overlapping "every Nth" rules in one sentence: the app does not calculate it */
+  complex?: boolean;
 }
 
 export interface ParseInfo {
@@ -294,6 +301,8 @@ export interface Progress {
   currentInstructionId?: string;
   currentSetAt?: number;
   completed: string[];
+  /** scroll position (0..1) of the pasted-text viewer */
+  sourceScroll?: number;
   /** ids of outline sections the user has open */
   expanded: string[];
   pdfPage: number;

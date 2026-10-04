@@ -68,3 +68,6 @@ export function formatWhen(ts?: number): string {
   if (sameDay(d, y)) return `Yesterday ${time}`;
   return `${d.toLocaleDateString([], { day: 'numeric', month: 'short', year: d.getFullYear() === n.getFullYear() ? undefined : 'numeric' })} ${time}`;
 }
+
+export const isTextSource = (p: Pattern) => p.sourceType === 'text';
+export const sourceLabel = (p: Pattern) => (isTextSource(p) ? 'ORIGINAL TEXT' : 'ORIGINAL PDF');

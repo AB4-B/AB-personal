@@ -118,6 +118,18 @@ export function describeRow(spec: TrackerSpec, row: number, ctx: TrackerContext)
 
   // "every Nth row X times"
   for (const iv of spec.intervals) {
+    if (iv.complex) {
+      shaping.push({
+        id: iv.id,
+        label: iv.label,
+        status: 'review',
+        headline: 'NEEDS REVIEW',
+        detail: 'Several overlapping repeat rules. The app does not calculate this: read the original.',
+        excerpt: iv.excerpt,
+        sourceInstructionId: iv.sourceInstructionId,
+      });
+      continue;
+    }
     const first = ctx.state.firstOverrides[iv.id] ?? iv.first;
     const total = iv.times ? pick(iv.times, sizeIndex, sizeCount) : undefined;
     if (iv.times && total === undefined) {

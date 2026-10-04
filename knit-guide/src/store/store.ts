@@ -151,7 +151,8 @@ export async function createProject(input: NewProjectInput): Promise<Project> {
   pattern.updatedAt = now();
   await repo.putPattern(pattern);
 
-  const firstAction = pattern.instructions.find(isActionable);
+  // open the section where knitting starts (first cast on), else the first instruction
+  const firstAction = pattern.instructions.find((i) => i.kind === 'action' && /\bcast(ing)?\s+on\b/i.test(i.text)) ?? pattern.instructions.find(isActionable);
   const t = now();
   const project: Project = {
     id: uid(),
@@ -284,6 +285,9 @@ export const setExpanded = (id: string, sectionId: string, open: boolean) =>
     },
     false,
   );
+
+export const setSourceScroll = (id: string, frac: number) =>
+  mutate(id, (p) => void (p.progress.sourceScroll = frac), false);
 
 export const setPdfPage = (id: string, page: number) =>
   mutate(id, (p) => void (p.progress.pdfPage = page), false);

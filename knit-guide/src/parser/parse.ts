@@ -17,7 +17,8 @@ import {
   type Section,
   type StitchPattern,
 } from '../model/types';
-import { detectTrackers, sizeMismatchReasons } from './detect';
+import { cleanLines, dropPageFurniture, isCapsText, textToPages } from './clean';
+import { detectTrackers, flagUnmodelledSimultaneous, sizeMismatchReasons } from './detect';
 import type { RawImage, RawLine, RawPage } from './extract';
 
 export const PARSER_VERSION = '0.1.0';
@@ -104,7 +105,8 @@ function buildBlocks(lines: RawLine[]): Block[] {
   for (const l of lines) {
     let newBlock = !cur || !prev;
     if (cur && prev) {
-      if (l.page !== prev.page) {
+      if (l.breakBefore) newBlock = true;
+      else if (l.page !== prev.page) {
         const cont = !/[.!?:]$/.test(prev.text) && /^[a-z]/.test(l.text);
         newBlock = !cont;
       } else {
@@ -128,9 +130,9 @@ function buildBlocks(lines: RawLine[]): Block[] {
 
 /* ----------------------------------------------------------------- helpers */
 
-const ROW_LINE = /^(Rows?|Rounds?|Rnds?)\s*(\d+)\s*[:.]\s*(.*)$/i;
+const ROW_LINE = /^(Rows?|Rounds?|Rnds?)\s*(\d+)\s*(?:\(([A-Za-z]{2})\))?\s*[:.]\s*(.*)$/i;
 const LABEL_RE =
-  /^(?<label>sizes?|finished\s+measurements?|measurements?|materials?|yarn|needles?|gauge|tension|skills(?:\s+required)?(?:\s*\/\s*techniques\s+used)?|techniques(?:\s+used)?|abbreviations?|difficulty(?:\s+level)?)\s*:?\s*(?<rest>.*)$/i;
+  /^(?<label>sizes?|finished\s+measurements?|measurements?|materials?|yarn|needles?|gauge|tension|knitting\s+gauge|buttons?|notions|skills(?:\s+required)?(?:\s*\/\s*techniques\s+used)?|techniques(?:\s+used)?|abbreviations?|difficulty(?:\s+level)?)(?:\s*:\s*(?<rest>.*)|\s*$)/i;
 
 export function splitAtSentences(text: string): string[] {
   return text.replace(/([.!?])\s+(?=[A-Z*])/g, '$1\u0000').split('\u0000').map((s) => s.trim()).filter(Boolean);
@@ -141,26 +143,31 @@ function splitSentences(text: string): string[] {
   return parts;
 }
 
-const ACTION_VERBS =
-  /^(work|knit|purl|cast|bind|pick|transfer|unravel|holding|hold|sew|continue|follow|repeat|increase|decrease|place|divide|join|set|provisional|slip|turn|rep|cut|weave|block|make|using|use|at the same time)\b/i;
+const INFO_START =
+  /^(the|this|these|those|note|notes|please|you|there|all measurements|piece|jacket|cardigan|sweater|sleeves?|garment|body)\b[^:]*\b(is|are|will|can|should|may|measures?|worked)\b/i;
+const INFO_DEFINITION = /^[A-Z][\w -]{0,40}\b(is|are) (worked|marked|used|made)\b/;
 
+/** Prose that explains rather than instructs. Everything else is treated as an instruction. */
 function classify(text: string): 'action' | 'info' {
-  if (ACTION_VERBS.test(text)) return 'action';
-  if (/^(row|round|rows|rounds|rnd)\b/i.test(text)) return 'action';
-  if (/^(set-up|setup|next)\b/i.test(text)) return 'action';
-  if (/^to\s+shape\b/i.test(text)) return 'action';
   if (/^stitch count\b/i.test(text)) return 'info';
-  return 'info';
+  if (isCapsText(text) && /[!.]$/.test(text)) return 'info';
+  if (/^(row|round|rows|rounds|rnd|set-?up|next)\b/i.test(text)) return 'action';
+  if (/^at the same time\b/i.test(text)) return 'action';
+  if (INFO_START.test(text) && !/^(work|knit|purl|cast)\b/i.test(text)) return 'info';
+  if (INFO_DEFINITION.test(text)) return 'info';
+  if (/^(enjoy|have fun|good luck)/i.test(text)) return 'info';
+  return 'action';
 }
 
 function isHeadingBlock(b: Block): { level: 1 | 2; title: string } | null {
   if (b.lines.length !== 1) return null;
   const t = b.text.replace(/:$/, '').trim();
   const words = t.split(/\s+/).length;
-  if (words > 7 || /[.!?,;]$/.test(b.text) || t.includes(',')) return null;
+  const caps = isCapsText(t.replace(/\([^)]*\)/g, ''));
+  if (words > (caps ? 16 : 7) || /[.!?,;]$/.test(b.text) || (!b.emphasis && t.includes(','))) return null;
   if (ROW_LINE.test(t) || /^(row|round)s?\b/i.test(t)) return null;
   if (/^[*\-•]/.test(t)) return null;
-  if (b.emphasis) return { level: 1, title: t };
+  if (b.emphasis) return { level: /^(all )?sizes?\b/i.test(t) ? 2 : 1, title: t };
   if (words <= 4 && /^[A-Z]/.test(t) && !/\d/.test(t) && !/^(enjoy|bind|cast|knit|purl)/i.test(t)) {
     return { level: 2, title: t };
   }
@@ -184,7 +191,7 @@ function parseAbbreviations(lines: RawLine[], page: number): Abbreviation[] {
 }
 
 function parseGauge(raw: string): Gauge {
-  const m = raw.match(/(\d+(?:\.\d+)?)\s*(?:sts?|stitches)\s*(?:x|×|and|by)\s*(\d+(?:\.\d+)?)\s*rows?/i);
+  const m = raw.match(/(\d+(?:\.\d+)?)\s*(?:sts?|stitches)(?:\s+in\s+width)?\s*(?:x|×|and|by)\s*(\d+(?:\.\d+)?)\s*rows?/i);
   const over = raw.match(/(\d+(?:\.\d+)?)\s*(?:"|in\b|inch)/i);
   return {
     raw,
@@ -194,12 +201,47 @@ function parseGauge(raw: string): Gauge {
   };
 }
 
+/**
+ * "EXPLANATIONS FOR THE PATTERN:" followed straight away by "GARTER STITCH:" has no text of its own:
+ * it is a group title. Following headings become its level-2 children until the next group title.
+ * Trailing empty headings are dropped. Shared with the review screen's re-derive step.
+ */
+export function groupHeadings(sections: Section[], instructions: Instruction[]) {
+  const has = (s: Section) => instructions.some((i) => i.sectionId === s.id);
+  // drop empty headings at the end
+  while (sections.length && !has(sections[sections.length - 1])) sections.pop();
+  let group: Section | undefined;
+  for (let i = 0; i < sections.length; i++) {
+    const s = sections[i];
+    if (!has(s) && i < sections.length - 1 && s.level === 1) {
+      group = s;
+      continue;
+    }
+    if (group && s.level === 1) {
+      s.level = 2;
+      s.parentId = group.id;
+    }
+  }
+  // never nest deeper than two levels
+  for (const s of sections) {
+    const p = sections.find((x) => x.id === s.parentId);
+    if (p && p.level === 2) s.parentId = p.parentId;
+    if (s.level === 2 && !s.parentId) s.level = 1;
+  }
+  // an empty heading with no children is just noise
+  for (let i = sections.length - 1; i >= 0; i--) {
+    const s = sections[i];
+    if (!has(s) && !sections.some((c) => c.parentId === s.id)) sections.splice(i, 1);
+  }
+}
+
 /* ------------------------------------------------------------------- parse */
 
 export interface ParseOptions {
   fileId: string;
   fileName: string;
   id?: string;
+  sourceType?: 'pdf' | 'text';
 }
 
 export function parsePattern(pages: RawPage[], opts: ParseOptions): Pattern {
@@ -237,24 +279,38 @@ export function parsePattern(pages: RawPage[], opts: ParseOptions): Pattern {
   }
 
   // ---- lines -> blocks
-  const lines = pages
-    .flatMap((p) => p.lines)
-    .filter((l) => !JUNK.some((r) => r.test(l.text)) && !captionLines.has(l));
+  const allLines = pages.flatMap((p) => p.lines);
+  const lines = cleanLines(
+    dropPageFurniture(pages)
+      .flatMap((p) => p.lines)
+      .filter((l) => !JUNK.some((r) => r.test(l.text)) && !captionLines.has(l)),
+  );
   const blocks = buildBlocks(lines);
 
   // ---- front matter and labelled fields
   const p1 = pages[0];
-  const titleLine = p1?.lines
-    .filter((l) => !/©|copyright/i.test(l.text))
-    .sort((a, b) => b.size - a.size || b.y - a.y)[0];
+  const BRAND = /\b(designs?|garnstudio)\s*$/i;
+  const cands = (p1?.lines ?? [])
+    .filter((l) => !/©|copyright/i.test(l.text) && !CAPTION_RE.test(l.text))
+    .sort((a, b) => b.size - a.size || b.y - a.y);
+  const brandLine = cands.find((l) => BRAND.test(l.text) && l.text.split(/\s+/).length <= 4);
+  const titleLine = cands.find((l) => l !== brandLine) ?? cands[0];
   let title = titleLine?.text ?? opts.fileName.replace(/\.pdf$/i, '');
-  let designer = '';
-  const cr = lines.map((l) => l.text).join(' ').match(/(?:copyright\s*©?|©)\s*([^.]+?)\.\s*All rights/i);
-  if (cr) designer = cr[1].trim();
+  let designer = brandLine?.text ?? '';
+  const allText = allLines.map((l) => l.text).join(' ');
   if (!designer) {
-    const by = lines.slice(0, 40).find((l) => /^by\s+\S+/i.test(l.text));
+    const cr = allText.match(/(?:copyright\s*©?|©)\s*([^.]+?)\.\s*All rights/i);
+    if (cr) designer = cr[1].trim();
+  }
+  if (!designer) {
+    const dm = allText.match(/\b([A-Z][\w]+ Design)\s*:/);
+    if (dm) designer = dm[1];
+  }
+  if (!designer) {
+    const by = allLines.slice(0, 40).find((l) => /^by\s+\S+/i.test(l.text));
     if (by) designer = by.text.replace(/^by\s+/i, '');
   }
+  const suggestedSize = allText.match(/size\s+highlighted\s+below:\s*(\S+)/i)?.[1];
 
   let sizes: string[] = [];
   const measurements: Measurement[] = [];
@@ -262,6 +318,8 @@ export function parsePattern(pages: RawPage[], opts: ParseOptions): Pattern {
   let needles = '';
   let gaugeRaw = '';
   let difficulty: string | undefined;
+  let notions = '';
+  const loose: string[] = [];
   let description = '';
   const techniques: string[] = [];
   let abbreviations: Abbreviation[] = [];
@@ -311,8 +369,10 @@ export function parsePattern(pages: RawPage[], opts: ParseOptions): Pattern {
   };
 
   let pendingLabel: string | undefined;
-  const applyField = (label: string, restAll: string[], page: number) => {
+  let stickyPending = false;
+  const applyField = (label: string, restAll: string[], page: number, append = false) => {
     abbrMode = false;
+    const join = (prev: string) => (append && prev ? `${prev} ${restAll.join(' ')}` : restAll.join(' '));
     if (/^sizes?$/.test(label)) {
       sizes = parseSizeList(restAll.join(' '));
     } else if (/finished|measurements?/.test(label)) {
@@ -320,20 +380,27 @@ export function parsePattern(pages: RawPage[], opts: ParseOptions): Pattern {
         const mm = line.match(/^([^:]+):\s*(.+)$/);
         if (!mm) continue;
         const groups = findSizeGroups(mm[2], sizes.length);
+        // which list is inches and which is cm? decided by the unit printed next to it
+        const isIn = (g: (typeof groups)[number]) => /["”″]/.test(g.raw) || /^\s*(in\b|inch)/i.test(mm[2].slice(g.end));
+        const isCm = (g: (typeof groups)[number]) => /^\s*cm\b/i.test(mm[2].slice(g.end));
+        const inG = groups.find(isIn) ?? groups.find((g) => !isCm(g));
+        const cmG = groups.find((g) => g !== inG && (isCm(g) || !isIn(g))) ?? groups.find(isCm);
         measurements.push({
           id: `m${measurements.length + 1}`,
           label: mm[1].trim(),
           raw: line,
-          inches: groups[0]?.values,
-          cm: groups[1]?.values,
+          inches: inG?.values,
+          cm: cmG?.values,
           page,
         });
       }
     } else if (/^(materials?|yarn)$/.test(label)) {
-      materials = restAll.join(' ');
+      materials = join(materials);
     } else if (/^needles?$/.test(label)) {
-      needles = restAll.join(' ');
-    } else if (/^(gauge|tension)$/.test(label)) {
+      needles = join(needles);
+    } else if (/^(buttons?|notions)$/.test(label)) {
+      notions = join(notions);
+    } else if (/^(gauge|tension|knitting gauge)$/.test(label)) {
       gaugeRaw = restAll.join(' ');
     } else if (/^difficulty/.test(label)) {
       difficulty = restAll.join(' ');
@@ -360,11 +427,8 @@ export function parsePattern(pages: RawPage[], opts: ParseOptions): Pattern {
       if (/©|copyright/i.test(b.text)) continue;
       const lm = first.match(LABEL_RE);
       if (!lm) {
-        if (b.lines.some((l) => l === titleLine)) {
-          title = titleLine!.text;
-          continue;
-        }
-        if (b.text.length > 160) description += (description ? ' ' : '') + b.text;
+        if (b.lines.some((l) => l.text === titleLine?.text || l.text === brandLine?.text)) continue;
+        if (b.text.length > 80) description += (description ? ' ' : '') + b.text;
         continue;
       }
       zone = 'fields';
@@ -378,35 +442,35 @@ export function parsePattern(pages: RawPage[], opts: ParseOptions): Pattern {
         addSection('Pattern notes', 1, b.page);
         continue;
       }
-      if (b.text.length > 160 && !LABEL_RE.test(first) && !abbrMode) {
-        description += (description ? ' ' : '') + b.text;
-        continue;
-      }
       const lm = first.match(LABEL_RE);
       if (lm?.groups) {
         const label = lm.groups.label.toLowerCase().replace(/\s+/g, ' ');
-        const restFirst = lm.groups.rest.trim();
+        const restFirst = (lm.groups.rest ?? '').trim();
         const restAll = [restFirst, ...b.lines.slice(1).map((l) => l.text)].filter(Boolean);
-        pendingLabel = restAll.length ? undefined : label;
+        // a label alone on its line ("YARN:") takes the following blocks too, for list-like fields
+        pendingLabel = restAll.length === 0 ? label : undefined;
+        stickyPending = restAll.length === 0 && /^(materials?|yarn|needles?|buttons?|notions|finished|measurements?|skills|techniques)/.test(label);
         applyField(label, restAll, b.page);
         continue;
       }
-      if (pendingLabel) {
-        applyField(pendingLabel, b.lines.map((l) => l.text), b.page);
-        pendingLabel = undefined;
-        continue;
-      }
-      if (abbrMode) {
-        abbreviations.push(...parseAbbreviations(b.lines, b.page));
-        continue;
-      }
-      // unknown block between fields and notes: a heading starts the body, anything else is intro text
       const hh = isHeadingBlock(b);
-      if (!hh || hh.level !== 1) {
-        if (b.text.length > 60) description += (description ? ' ' : '') + b.text;
+      if (hh && hh.level === 1) {
+        pendingLabel = undefined;
+        abbrMode = false;
+        zone = 'body';
+      } else {
+        if (pendingLabel) {
+          applyField(pendingLabel, b.lines.map((l) => l.text), b.page, true);
+          if (!stickyPending) pendingLabel = undefined;
+          continue;
+        }
+        if (abbrMode) {
+          abbreviations.push(...parseAbbreviations(b.lines, b.page));
+          continue;
+        }
+        loose.push(b.text);
         continue;
       }
-      zone = 'body';
     }
 
     // ---------- body
@@ -431,30 +495,43 @@ export function parsePattern(pages: RawPage[], opts: ParseOptions): Pattern {
       continue;
     }
 
-    // "Row 1: ... Row 4: ... Repeat from row 1." -> row-based stitch pattern
+    // "Row 1: ... Row 4: ... Repeat from row 1." -> row-based stitch pattern (rows may wrap over lines)
     const rowLines = b.lines.filter((l) => ROW_LINE.test(l.text));
     if (rowLines.length >= 2 && rowLines.every((l, i) => Number(l.text.match(ROW_LINE)![2]) === i + 1)) {
-      const firstRowIdx = b.lines.indexOf(rowLines[0]);
-      const head = b.lines.slice(0, firstRowIdx).map((l) => l.text).join(' ');
-      const nm = head.match(/^(.*?)\s*(?::\s*multiple\s+of\s+(\d+))?\s*$/i);
-      const unit = /^rou?nd/i.test(rowLines[0].text) ? 'round' : 'row';
-      const repLine = b.lines.map((l) => l.text).find((t) => /repeat\s+from\s+(?:row|round|rnd)\s+\d+/i.test(t));
+      const head: string[] = [];
+      const rows: { n: number; text: string; side?: string; src: string[] }[] = [];
+      let repeat = '';
+      let cur: (typeof rows)[number] | undefined;
+      for (const l of b.lines) {
+        const m = l.text.match(ROW_LINE);
+        if (m) {
+          cur = { n: Number(m[2]), side: m[3]?.toUpperCase(), text: m[4].trim(), src: [l.text] };
+          rows.push(cur);
+        } else if (/^repeat\b/i.test(l.text) && rows.length) {
+          repeat = l.text;
+          cur = undefined;
+        } else if (cur) {
+          cur.text += ' ' + l.text;
+          cur.src.push(l.text);
+        } else head.push(l.text);
+      }
+      const nm = head.join(' ').match(/^(.*?)\s*(?::\s*multiple\s+of\s+(\d+))?\s*$/i);
+      const unit = /^rou?nd|^rnd/i.test(rowLines[0].text) ? 'round' : 'row';
+      const rep = repeat.match(/repeat\s+(?:from\s+)?(?:rows?|rounds?|rnds?)\s+(\d+)/i);
       const sp: StitchPattern = {
         id: `sp${++spN}`,
-        name: (nm?.[1] || (unit === 'row' ? 'Stitch pattern (rows)' : 'Stitch pattern (rounds)')).replace(/[:\s]+$/, '').trim(),
+        name: (nm?.[1] || curSection?.title || (unit === 'row' ? 'Stitch pattern (rows)' : 'Stitch pattern (rounds)')).replace(/[:\s]+$/, '').trim(),
         unit,
-        rows: rowLines.map((l) => {
-          const m = l.text.match(ROW_LINE)!;
-          return { n: Number(m[2]), text: m[3].trim() };
-        }),
-        repeatFrom: repLine ? Number(repLine.match(/repeat\s+from\s+(?:row|round|rnd)\s+(\d+)/i)![1]) : undefined,
-        length: rowLines.length,
+        rows: rows.map((r) => ({ n: r.n, text: r.text, side: r.side })),
+        repeatFrom: rep ? Number(rep[1]) : undefined,
+        length: rows.length,
         multipleOf: nm?.[2] ? Number(nm[2]) : undefined,
         page: b.page,
       };
       stitchPatterns.push(sp);
       if (!curSection) addSection('Pattern notes', 1, b.page);
-      const ins = addInstruction(b.lines.map((l) => l.text).join('\n'), { page: b.page, lines: b.lines.map((l) => l.text) }, 'stitch-pattern');
+      const text = [...head, ...rows.map((r) => r.src.join(' ')), ...(repeat ? [repeat] : [])].join('\n');
+      const ins = addInstruction(text, { page: b.page, lines: b.lines.map((l) => l.text) }, 'stitch-pattern');
       ins.stitchPatternId = sp.id;
       continue;
     }
@@ -478,6 +555,18 @@ export function parsePattern(pages: RawPage[], opts: ParseOptions): Pattern {
     }
     if (/^(enjoy!?|pattern was updated.*)$/i.test(b.text)) continue;
 
+    // "Make buttonholes when piece measures: / SIZE S: ... / SIZE M: ..." stays ONE instruction
+    const sizeLines = b.lines.filter((l) => /^sizes?\s+\S+\s*:/i.test(l.text));
+    if (sizeLines.length >= 3) {
+      const intro = b.lines.slice(0, b.lines.indexOf(sizeLines[0])).map((l) => l.text).join(' ');
+      const sents = splitAtSentences(intro);
+      const lead = sents.pop() ?? '';
+      for (const sx of sents) addInstruction(sx, { page: b.page, lines: [sx] });
+      const text = [lead, ...sizeLines.map((l) => l.text)].filter(Boolean).join('\n');
+      addInstruction(text, { page: b.page, lines: b.lines.map((l) => l.text) }, lead ? classify(lead) : 'info');
+      continue;
+    }
+
     // paragraph -> one or more instructions
     const sentences = splitSentences(b.text);
     const split = sentences.length >= 3 || b.text.length > 220;
@@ -486,6 +575,22 @@ export function parsePattern(pages: RawPage[], opts: ParseOptions): Pattern {
       addInstruction(u, { page: b.page, lines: split ? [u] : b.lines.map((l) => l.text) });
     }
   }
+
+  // ---- fields printed without a label (needles + gauge in one sentence, button line, ...)
+  if (!needles) {
+    const n = loose.find((t) => /needles?\b/i.test(t) && /\d\s*mm|US\s*\d/i.test(t));
+    if (n) needles = n.split(/\s+[–—-]\s+or\b/i)[0].replace(/\s+(?:or\s+)?size needed.*$/i, '').trim();
+  }
+  if (!gaugeRaw) {
+    for (const t of loose) {
+      const g = t.match(/\d+(?:\.\d+)?\s*(?:sts?|stitches)(?:\s+in\s+width)?\s*(?:x|×|and|by)\s*\d+(?:\.\d+)?\s*rows?.*/i);
+      if (g) { gaugeRaw = g[0].replace(/\.$/, ''); break; }
+    }
+  }
+  if (!notions) notions = loose.find((t) => /\bbuttons?\b/i.test(t)) ?? '';
+
+  // ---- structure: headings with nothing under them group the headings that follow
+  groupHeadings(sections, instructions);
 
   // ---- derived fields
   const sizeCount = sizes.length;
@@ -501,6 +606,7 @@ export function parsePattern(pages: RawPage[], opts: ParseOptions): Pattern {
   }
 
   const { trackers } = detectTrackers(sections, instructions, stitchPatterns, sizeCount);
+  for (const w of flagUnmodelledSimultaneous(instructions, trackers)) warn('needs-review', w.message, { instructionId: w.id, page: w.page });
   for (const t of trackers) {
     for (const r of t.review) warn('needs-review', `${t.title}: ${r}`, { page: instructions.find((i) => i.trackerId === t.id)?.source.page });
   }
@@ -516,6 +622,9 @@ export function parsePattern(pages: RawPage[], opts: ParseOptions): Pattern {
     fileId: opts.fileId,
     fileName: opts.fileName,
     pageCount: pages.length,
+    sourceType: opts.sourceType ?? 'pdf',
+    suggestedSize: suggestedSize && sizes.includes(suggestedSize.toUpperCase()) ? suggestedSize.toUpperCase() : undefined,
+    notions: notions || undefined,
     title,
     designer,
     difficulty,
@@ -539,7 +648,24 @@ export function parsePattern(pages: RawPage[], opts: ParseOptions): Pattern {
 /** Prefill helpers for project setup (suggestions only; user edits freely). */
 export function suggestSetup(p: Pattern) {
   const yarn = p.yarn.description.split(/[(,]/)[0].trim();
-  const colour = p.yarn.description.match(/colou?r\s+([^-–,]+?)(?:\s+[-–]|,|$)/i)?.[1]?.trim() ?? '';
-  const needle = p.needles.match(/US\s*[\d.]+\s*\([\d.]+\s*mm\)/i)?.[0] ?? p.needles;
+  const colour = p.yarn.description.match(/colou?r\s+(?:no\.?\s*)?(.+?)(?:\s+[-–]\s+\d|\s+\d[\d\s-]*\s?g\b|$)/i)?.[1]?.trim() ?? '';
+  const needle =
+    p.needles.match(/US\s*[\d.]+\s*\([\d.]+\s*mm\)/i)?.[0] ??
+    p.needles.match(/[\d.]+\s*mm\s*(?:=|\/)\s*US\s*[\d.]+/i)?.[0] ??
+    p.needles.split(/\.\s|\n/)[0];
   return { yarn, colour, needle };
+}
+
+
+/** Copy-and-paste import: same parser, layout inferred from the text. The pasted text is the source of truth. */
+export function parsePastedText(text: string, opts: { title?: string; id?: string; fileId?: string }): Pattern {
+  const pat = parsePattern(textToPages(text), {
+    fileId: opts.fileId ?? `text-${uid()}`,
+    fileName: 'Pasted text',
+    id: opts.id,
+    sourceType: 'text',
+  });
+  if (opts.title?.trim()) pat.title = opts.title.trim();
+  pat.pageCount = 1;
+  return pat;
 }

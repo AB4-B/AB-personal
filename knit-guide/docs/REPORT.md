@@ -17,7 +17,16 @@
 13. EXPLAIN THIS (rule-based, labelled GUIDANCE), tappable abbreviations (pattern definition first)
 14. PWA: manifest, icons, standalone, precached app + pdf.js worker, offline verified
 
-## Mocked / not real
+## Update: second pattern + copy-paste import
+* **Paste import**: textarea on New project; same parser, same review screen; source stored verbatim; ORIGINAL TEXT viewer highlights the current instruction.
+* Parser generalised on two layouts the first one never exercised: no bold headings, `ALL CAPS:` headings glued to their text, dash-separated size lists with fractions (`102-110-116-…`, `208- 228 -248-…`), unlabelled needles/gauge, page furniture and website outro, wrapped `Row 1 (RS):` lines, `SIZE M: …` lists, size highlighted in the print.
+* Row guide can now be built from "every Nth row" alone, can merge sections named by "Read the next 2 sections", and marks overlapping rules (`complex`) as NEEDS REVIEW instead of calculating them.
+* `AT THE SAME TIME` instructions the engine can't model (e.g. measured in cm) are flagged NEEDS REVIEW.
+
+### Uncertainties in these two patterns
+* **Sand Ripples PDF** (it is DROPS 111-27, not the No Nonsense Cardigan): inch values lost glyphs in the PDF text (`3 "` for 3¾"), so only cm is reliable. All "when piece measures … cm" shaping is measurement based: no row guide, three AT THE SAME TIME instructions flagged. Diagram (page 4) is an image, not read. pdf.js logs a missing-CJK-font warning for this Safari print but still extracts all text.
+* **No Nonsense Cardigan paste**: web-chrome removal is a list of known phrases (DROPS-style pages); another site may leak menus into the outline, so check Review. Raglan is described by three overlapping sentences: not calculated, flagged. V-neck (every 4th row, 11-11-11-14-14-14) is modelled with the first row assumed to be row 1. `2-1-1-1-5 times` has 5 values for 6 sizes because the heading names only sizes S, M, XL, XXL, XXXL: left unresolved (the app cannot map a size subset yet).
+
 * Nothing is faked in the UI. Two things are *rule-based stand-ins* for AI: the parser and EXPLAIN THIS.
 * No sync, accounts, Ravelry, videos or yarn stock (data model leaves room).
 

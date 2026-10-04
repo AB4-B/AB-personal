@@ -1,7 +1,7 @@
 import { uid } from '../model/helpers';
 import type { Pattern } from '../model/types';
 import { extractPdf } from '../parser/extract';
-import { parsePattern } from '../parser/parse';
+import { parsePastedText, parsePattern } from '../parser/parse';
 import { loadPdf, pdfjs } from './pdfjs';
 
 export interface ImportResult {
@@ -58,4 +58,11 @@ export async function importPdf(file: File, onProgress?: (msg: string, frac: num
   }
   onProgress?.('Done', 1);
   return { pattern, fileBlob: new Blob([buf], { type: 'application/pdf' }), imageBlobs };
+}
+
+/** Copy-and-paste import. The pasted text itself is stored as the untouched source. */
+export function importText(text: string, title?: string): ImportResult {
+  const fileId = `text-${uid()}`;
+  const pattern = parsePastedText(text, { title, fileId });
+  return { pattern, fileBlob: new Blob([text], { type: 'text/plain;charset=utf-8' }), imageBlobs: {} };
 }
