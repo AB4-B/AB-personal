@@ -147,6 +147,21 @@ export function guideInstruction(ins: Instruction, ctx: GuideCtx): Guided {
     text = out;
   }
 
+  // Safety net: a list of numbers for different sizes that was not recognised (a torn or oddly written list) must never
+  // reach the knitter as if it were one instruction. It becomes a value to review.
+  const LEFTOVER = /\d+(?:\.\d+)?\s*[(\[]\s*\d+(?:\.\d+)?(?:\s*,\s*\d+(?:\.\d+)?){2,}\s*,?\s*(?:[)\]]|$)/g;
+  let leftN = 0;
+  text = text.replace(LEFTOVER, (raw) => {
+    const key = `${ins.id}#leftover${leftN++}`;
+    if (overrides[key] !== undefined) {
+      resolved++;
+      overridden.push(key);
+      return overrides[key];
+    }
+    review.push({ key, raw, values: [], reason: 'This looks like a list of numbers for different sizes, but it could not be matched to your size.' });
+    return MARK(key);
+  });
+
   const { text: metric, flags } = toMetric(text);
   const parts: GuidePart[] = [];
   let last = 0;

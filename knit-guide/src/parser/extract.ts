@@ -191,7 +191,10 @@ export function readingOrder(items: Item[], pageWidth: number, page: number, bod
   const isTable = (r: Item[]) => {
     if (r.length < 6) return false;
     const lens = r.map((i) => i.str.trim().length).sort((a, b) => a - b);
-    return lens[Math.floor(lens.length / 2)] <= 7;
+    if (lens[Math.floor(lens.length / 2)] > 7) return false;
+    // table cells are separated by real gaps; a line of prose full of numbers ("30, 30, 50, 50, ...") is not a table row
+    const wide = r.slice(1).filter((it, k) => it.x - (r[k].x + r[k].w) > 8).length;
+    return wide >= Math.max(3, Math.floor(r.length * 0.4));
   };
   // a right-hand column shows up as many lines starting at the same x in the middle of the page,
   // with nothing from the left side running into it
@@ -232,13 +235,49 @@ export function readingOrder(items: Item[], pageWidth: number, page: number, bod
     out.push(...side((i) => i.x < g - 4, true), ...side((i) => i.x >= g - 4, true));
     zone = [];
   };
+  // Rows are grouped into: table rows, full-width rows (they cross the gutter) and column zones. A one-line zone
+  // directly under a full-width row, starting at the same left edge, is the wrapped end of that paragraph (for
+  // example "150, 150, 150) yards." under "If working 3/4 sleeves subtract 30 (30, 30, ..."), not a column.
+  type Seg = { kind: 'wide' | 'table' | 'zone'; rows: Item[][] };
+  const segs: Seg[] = [];
   for (const r of rows) {
-    if (straddles(r) || isTable(r)) {
-      flush();
-      out.push({ ...rowToLine(r, page, bodyFont), breakBefore: true });
-    } else zone.push(r);
+    const kind: Seg['kind'] = isTable(r) ? 'table' : straddles(r) ? 'wide' : 'zone';
+    const last = segs[segs.length - 1];
+    if (kind === 'zone' && last?.kind === 'zone') last.rows.push(r);
+    else segs.push({ kind, rows: [r] });
   }
-  flush();
+  const minX = (r: Item[]) => Math.min(...r.map((i) => i.x));
+  const textOf = (r: Item[]) => r.map((i) => i.str).join(' ').trim();
+  for (let i = 1; i < segs.length; i++) {
+    const s = segs[i];
+    const prev = segs[i - 1];
+    if (s.kind !== 'zone' || prev.kind !== 'wide') continue;
+    const above = prev.rows[prev.rows.length - 1];
+    const first = s.rows[0];
+    // the first line of the zone is the wrapped end of the full-width line above it: same left edge, one line down,
+    // nothing in the right column, and the line above stopped mid-sentence
+    if (Math.abs(minX(first) - minX(above)) < 4 && first.every((it) => it.x < g - 4) && above[0].y - first[0].y < 20 && !/[.!?:]$/.test(textOf(above))) {
+      segs.splice(i, 1, { kind: 'wide', rows: [first] }, ...(s.rows.length > 1 ? [{ kind: 'zone' as const, rows: s.rows.slice(1) }] : []));
+    }
+  }
+  let prevWide = false;
+  let prevText = '';
+  for (const seg of segs) {
+    if (seg.kind === 'zone') {
+      zone = seg.rows;
+      flush();
+      prevWide = false;
+    } else {
+      for (const r of seg.rows) {
+        const line = rowToLine(r, page, bodyFont);
+        // a line that ends a sentence starts a new paragraph; a line that stops mid-sentence is wrapped onto the next
+        const wrapped = seg.kind === 'wide' && prevWide && !/[.!?:]$/.test(prevText);
+        out.push({ ...line, breakBefore: wrapped ? undefined : true });
+        prevWide = seg.kind === 'wide';
+        prevText = line.text;
+      }
+    }
+  }
   return dropDiagramLabels(out);
 }
 

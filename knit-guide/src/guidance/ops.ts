@@ -32,6 +32,19 @@ export interface OpResult {
   layoutTotal?: number;
   turns: number;
   markersPlaced: number;
+  /** a row made of plain stitches around ONE repeat that runs to the end: lets the caller work out how many repeats fit */
+  span?: Span;
+}
+
+export interface Span {
+  /** stitches used before the repeat, and after it (not counting the stitches left over at the end) */
+  pre: number;
+  post: number;
+  /** stitches one repeat uses, and how many it adds (+) or removes (-) */
+  groupUse: number;
+  groupDelta: number;
+  /** stitches left unworked when the repeat stops ("to last 3 sts" leaves 3) */
+  remain: number;
 }
 
 interface AtomOut {
@@ -48,6 +61,19 @@ interface AtomOut {
 }
 
 const sts = (k: number) => (k === 1 ? '1 stitch' : `${k} stitches`);
+
+/** The side of the row being read ("Row 2 (WS): …"), when the designer labels it. Short-row techniques depend on it. */
+let SIDE: 'RS' | 'WS' | undefined;
+export function withSide<T>(side: 'RS' | 'WS' | undefined, fn: () => T): T {
+  const prev = SIDE;
+  SIDE = side;
+  try {
+    return fn();
+  } finally {
+    SIDE = prev;
+  }
+}
+const bothSides = (rs: string, ws: string) => (SIDE === 'RS' ? [rs] : SIDE === 'WS' ? [ws] : [`If the right side is facing you: ${rs}`, `If the wrong side is facing you: ${ws}`]);
 const WORD_NUM: Record<string, number> = { once: 1, twice: 2, thrice: 3, 'three times': 3, 'four times': 4, 'five times': 5, 'six times': 6 };
 
 const clean = (t: string) => t.trim().replace(/\s+/g, ' ').replace(/[.;:]+$/, '').replace(/^and\s+/i, '').trim();
@@ -88,7 +114,7 @@ function atom(raw: string): AtomOut | null {
 }
 
 function atomCore(raw: string): AtomOut | null {
-  const t = clean(raw).toLowerCase().replace(/\bsts?\b/g, 'sts').replace(/\bstitch(?:es)?\b/g, 'sts');
+  const t = clean(raw).toLowerCase().replace(/\bsts?\b/g, 'sts').replace(/\bstitch(?:es)?\b/g, 'sts').replace(/^bo\b/, 'bind off').replace(/^co\b/, 'cast on');
   if (!t) return null;
   let m: RegExpMatchArray | null;
 
@@ -247,8 +273,75 @@ function atomCore(raw: string): AtomOut | null {
     return { steps: [`Same again for the other side, with the same number of stitches (${clean(raw)}).`], delta: undefined };
   }
 
-  // German short rows
-  if (/^double the (?:sts|st)$/.test(t)) return { steps: ['Make a doubled stitch (German short row): slip the first stitch purlwise with the yarn at the front, then pull the yarn up and over the needle so the stitch shows as 2 loops.'], delta: 0 };
+  // short rows: German short rows (double stitch) and wrap and turn. The method depends on the side facing you.
+  if (/^(?:double the (?:sts|st)|ds|make a double (?:sts|st))$/.test(t)) {
+    return {
+      steps: bothSides(
+        'make a double stitch: bring the yarn between the needle tips to the right side, slip the next stitch purlwise, then pass the yarn over the needle to the wrong side. The stitch now shows as 2 loops over the needle (do not work it).',
+        'make a double stitch: with the yarn on the wrong side, slip the next stitch purlwise, then pass the yarn over the needle to the right side and back between the needle tips to the wrong side. The stitch now shows as 2 loops over the needle (do not work it).',
+      ).map((x) => (SIDE ? `Make a double stitch${x.replace(/^make a double stitch/, '')}` : x)),
+      delta: 0,
+    };
+  }
+  if (/^(?:w&t|w & t|wrap and turn|wrap & turn|wrap,? turn)(?: work)?$/.test(t)) {
+    return {
+      steps: bothSides(
+        'wrap and turn (w&t): with the yarn at the back, slip the next stitch purlwise to the right needle, bring the yarn to the front, slip the stitch back to the left needle, take the yarn to the back, then turn your work.',
+        'wrap and turn (w&t): with the yarn at the front, slip the next stitch purlwise to the right needle, take the yarn to the back, slip the stitch back to the left needle, bring the yarn to the front, then turn your work.',
+      ).map((x) => x.replace(/^wrap and turn/, 'Wrap and turn').replace(/(: )wrap and turn/, '$1wrap and turn')),
+      delta: 0,
+      turn: true,
+    };
+  }
+
+  // more abbreviations and counted rows
+  m = t.match(/^(k|p)2tog\s*(?:tbl|-tbl|through (?:the )?back loops?)$/);
+  if (m) return { steps: [`${m[1] === 'k' ? 'Knit' : 'Purl'} the next 2 stitches together through the back loops (${m[1]}2tog tbl).`], delta: -1 };
+  m = t.match(/^(knit|purl) (\d+) (rows?|rounds?)$/);
+  if (m) return { steps: [`${m[1] === 'knit' ? 'Knit' : 'Purl'} every stitch for ${m[2]} ${m[3]}.${/row/.test(m[3]) ? ' Turn your work at the end of each row.' : ''}`], delta: 0 };
+  m = t.match(/^work (\d+) (rows?|rounds?) in (garter|stockinette|reverse stockinette)(?: sts)?$/) ?? t.match(/^work in (garter|stockinette|reverse stockinette)(?: sts)? for (\d+) (rows?|rounds?)$/);
+  if (m) {
+    const [n, unit, kind] = /^\d/.test(m[1]) ? [m[1], m[2], m[3]] : [m[2], m[3], m[1]];
+    const row = /row/.test(unit);
+    const how =
+      kind === 'garter'
+        ? row ? `Knit every stitch of every row. Turn your work at the end of each row.` : 'Knit one round, purl one round, and keep alternating.'
+        : kind === 'stockinette'
+          ? row ? 'Knit the right-side rows and purl the wrong-side rows.' : 'Knit every round.'
+          : row ? 'Purl the right-side rows and knit the wrong-side rows.' : 'Purl every round.';
+    return { steps: [`Work ${n} ${unit} in ${kind} stitch. ${how}`], delta: 0 };
+  }
+  m = t.match(/^work (\d+) (rows?|rounds?) in (\d)x(\d) rib(?:bing)?$/) ?? t.match(/^work in (\d)x(\d) rib(?:bing)? for (\d+) (rows?|rounds?)$/);
+  if (m) {
+    const [n, unit, a, b] = /^\d/.test(m[1]) && m.length === 5 && /rows?|rounds?/.test(m[2]) ? [m[1], m[2], m[3], m[4]] : [m[3], m[4], m[1], m[2]];
+    return { steps: [`Work ${n} ${unit} in ${a}x${b} rib: knit ${a}, purl ${b}, and repeat. Knit the knit stitches and purl the purl stitches as they face you.`], delta: 0 };
+  }
+  m = t.match(/^\((.+)\) in (?:the )?next sts$/);
+  if (m) {
+    const parts = m[1].split(',').map((x) => x.trim());
+    if (parts.length >= 2 && parts.every((x) => /^(?:k|p)1?$|^yo$/.test(x))) {
+      const name = (x: string) => (x === 'yo' ? 'a yarn over' : x.startsWith('k') ? 'knit 1' : 'purl 1');
+      return { steps: [`Work all of these into the SAME stitch, then slip that stitch off: ${parts.map(name).join(', ')}. 1 stitch becomes ${parts.length}.`], delta: parts.length - 1 };
+    }
+  }
+  m = t.match(/^(?:slip|sl|place) (?:the )?(?:next )?(\d+) sts (?:onto|to|on) (?:a )?(?:stitch )?holder$/);
+  if (m) return { steps: [`Slide the next ${sts(Number(m[1]))} off your needle onto a stitch holder or waste yarn. Do not knit them. They stay live for later.`], delta: -Number(m[1]) };
+  m = t.match(/^bind off (\d+) sts at (?:the )?(?:beg|beginning|start)(?: of)?(?: the)? next (\d+) (rows?)$/);
+  if (m) return { steps: [`Bind off ${sts(Number(m[1]))} at the start of each of the next ${m[2]} rows (${sts(Number(m[1]) * Number(m[2]))} in all).`], delta: -Number(m[1]) * Number(m[2]) };
+  return null;
+}
+
+/** Stitches an atom takes off the left needle, when that is certain. */
+function useOfAtom(raw: string): number | null {
+  const t = clean(raw).toLowerCase().replace(/\bsts?\b/g, 'sts').replace(/\bstitch(?:es)?\b/g, 'sts');
+  let m = t.match(/^(k|p)\s*(\d+)?(?:\s*sts)?(?:\s*tbl)?$/);
+  if (m) return m[2] ? Number(m[2]) : 1;
+  if (/^(?:kfb|pfb)$/.test(t)) return 1;
+  if (/^(?:yo|yrn|yfwd|yon|yarn over|m1|m1l|m1r|m1p|make 1|psso|sm|pm)$/.test(t)) return 0;
+  if (/^(?:k2tog|p2tog|ssk|ssp)(?:\s*tbl)?$/.test(t)) return 2;
+  if (/^(?:k3tog|p3tog|sssk|sk2p|s2kp2?|cdd)$/.test(t)) return 3;
+  m = t.match(/^sl(?:ip)?\s*(\d+)?(?:\s*sts)?\s*(?:wyif|wyib|knitwise|purlwise|kwise|pwise)?$/);
+  if (m) return m[1] ? Number(m[1]) : 1;
   return null;
 }
 
@@ -278,30 +371,40 @@ function splitTop(s: string): string[] {
     .flatMap((p) =>
       p
         .replace(/\bpick up and knit\b/gi, 'pick up AND_KNIT')
+        .replace(/\bwrap and turn\b/gi, 'wrap AND_TURN')
         .split(/\s+and\s+(?=(?:join|continue|place|pm|sm|remove|turn|stop|knit|purl|k\d|p\d|work|slip|sl\b|cast|bind|pick|finish|dec|inc|now|complete|m\.\d))/i)
-        .map((x) => x.replace(/AND_KNIT/g, 'and knit')),
+        .map((x) => x.replace(/AND_KNIT/g, 'and knit').replace(/AND_TURN/g, 'and turn')),
     )
     .map((p) => p.trim())
     .filter(Boolean);
 }
 
 function timesOf(after: string): { n?: number; to?: string; len: number } | null {
-  const m = after.match(/^\s*(?:,?\s*)?(?:(\d+) times|(once|twice|thrice|three times|four times|five times|six times)|(?:to|until) (.+?))(?=[,.\]]|$)/i);
+  const m = after.match(/^\s*(?:,?\s*)?(?:(\d+) times|(once|twice|thrice|three times|four times|five times|six times)|(around|across)|(?:to|until) (.+?))(?=[,.\]]|$)/i);
   if (!m) return null;
   if (m[1]) return { n: Number(m[1]), len: m[0].length };
   if (m[2]) return { n: WORD_NUM[m[2].toLowerCase()], len: m[0].length };
-  return { to: m[3], len: m[0].length };
+  if (m[3]) return { to: 'the end', len: m[0].length };
+  return { to: /^(?:the )?end(?: of (?:the )?(?:row|round))?$/i.test(m[4]) ? 'the end' : m[4], len: m[0].length };
 }
 
 function parse(text: string): Node[] | null {
   // "* a, b *, work from *-* until there are 8 stitches left"
-  const star = text.match(/^(.*?)\*\s*(.+?)\s*\*,?\s*(?:work|repeat) from \*(?:\s*(?:-|to)\s*\*)?\s*(until (?:there are )?(\d+) (?:stitches|sts?)(?: left| remain(?:ing)?)?|to end|to last (\d+) (?:stitches|sts?))(.*)$/i);
+  const REPEAT_END = String.raw`(until (?:there are )?(\d+) (?:stitches|sts?)(?: left| remain(?:ing)?)?|to (?:the )?end(?: of (?:the )?(?:row|round))?|around|across|to last (?:(\d+) )?(?:stitches|sts?)\b)`;
+  const star =
+    text.match(new RegExp(String.raw`^(.*?)\*\s*(.+?)\s*\*,?\s*(?:work|repeat|rep) from \*(?:\s*(?:-|to)\s*\*)?\s*${REPEAT_END}(.*)$`, 'i')) ??
+    // the usual printed form has ONE opening star: "*k2, p2; rep from * to end"
+    text.match(new RegExp(String.raw`^(.*?)\*\s*(.+?)\s*[,;]?\s*(?:work|repeat|rep) from \*\s*${REPEAT_END}(.*)$`, 'i'));
+  // "k1, p1 across" is the same thing written short
+  const across = text.match(/^((?:k|p)\d*(?:\s*,\s*(?:k|p)\d*)+)\s+(?:across|to end)(?: of (?:the )?(?:row|round))?$/i);
+  if (across) return parse(`*${across[1]}*, repeat from * to end`);
   if (star) {
     const head = star[1].trim().replace(/,$/, '');
     const inner = parse(star[2]);
     if (!inner) return null;
     const tail = star[6].replace(/^[\s,]+/, '');
-    const stop = star[4] ? `${star[4]} stitches remain` : star[5] ? `${star[5]} stitches remain` : 'the end';
+    const left = (k: number) => (k === 1 ? '1 stitch remains' : `${k} stitches remain`);
+    const stop = star[4] ? left(Number(star[4])) : /^to last/i.test(star[3]) ? left(star[5] ? Number(star[5]) : 1) : 'the end';
     const nodes: Node[] = [];
     if (head) {
       const h = parse(head);
@@ -361,6 +464,11 @@ interface Acc {
   join: boolean;
   turns: number;
   markers: number;
+  /** stitch bookkeeping for span: NaN means "not certain" */
+  pre?: number;
+  post?: number;
+  span?: Omit<Span, 'pre' | 'post'>;
+  spanBroken?: boolean;
 }
 
 function run(nodes: Node[], acc: Acc, indent = false): boolean {
@@ -379,14 +487,27 @@ function run(nodes: Node[], acc: Acc, indent = false): boolean {
       if (a.join) acc.join = true;
       if (a.turn) acc.turns++;
       if (a.marker) acc.markers++;
+      const u = useOfAtom(n.text);
+      if (acc.span) acc.post = (acc.post ?? 0) + (u ?? NaN);
+      else acc.pre = (acc.pre ?? 0) + (u ?? NaN);
     } else {
-      const inner: Acc = { steps: [], delta: 0, known: true, join: false, turns: 0, markers: 0 };
+      const inner: Acc = { steps: [], delta: 0, known: true, join: false, turns: 0, markers: 0, pre: 0 };
       if (!run(n.nodes, inner, true)) return false;
       const head = n.times ? (n.times === 1 ? 'Do this once:' : `Do this ${n.times} times:`) : n.until ? `Repeat this until ${/^the end$/.test(n.until) ? 'the end of the row or round' : n.until.replace(/^there are /, '')}:` : 'Work this group:';
       acc.steps.push({ text: head, tech: [], note: true });
       acc.steps.push(...inner.steps.map((s) => ({ ...s, text: s.text.startsWith('•') ? s.text : `• ${s.text}` })));
-      if (n.times) acc.delta += inner.delta * n.times;
-      else if (inner.delta !== 0) acc.known = false;
+      if (n.times) {
+        acc.delta += inner.delta * n.times;
+        const u = inner.pre ?? NaN;
+        if (acc.span) acc.post = (acc.post ?? 0) + u * n.times;
+        else acc.pre = (acc.pre ?? 0) + u * n.times;
+      } else {
+        if (inner.delta !== 0) acc.known = false;
+        if (n.until && !acc.span && inner.known && inner.pre !== undefined && !Number.isNaN(inner.pre) && inner.pre > 0 && !inner.span) {
+          const m = n.until.match(/^(\d+) stitch(?:es)? remains?$/);
+          acc.span = { groupUse: inner.pre, groupDelta: inner.delta, remain: /^the end$/.test(n.until) ? 0 : m ? Number(m[1]) : NaN };
+        } else acc.spanBroken = true;
+      }
       acc.known = acc.known && inner.known;
       if (inner.layoutTotal !== undefined) acc.layoutTotal = (acc.layoutTotal ?? 0) + inner.layoutTotal * (n.times ?? 1);
       acc.join = acc.join || inner.join;
@@ -421,7 +542,12 @@ export function interpretSequence(textIn: string): OpResult | null {
   if (!body) return null;
   const nodes = parse(body);
   if (!nodes || !nodes.length) return null;
-  const acc: Acc = { steps: [], delta: 0, known: true, join: false, turns: 0, markers: 0 };
+  const acc: Acc = { steps: [], delta: 0, known: true, join: false, turns: 0, markers: 0, pre: 0 };
   if (!run(nodes, acc)) return null;
-  return { layoutTotal: acc.layoutTotal, startAt: acc.startAt, endsEmpty: acc.empties, steps: acc.steps, delta: acc.delta, deltaKnown: acc.known, statedTotal: total, statedChange: change, joinRound: acc.join, turns: acc.turns, markersPlaced: acc.markers };
+  const span: Span | undefined =
+    acc.span && !acc.spanBroken && !Number.isNaN((acc.pre ?? 0) + (acc.post ?? 0) + acc.span.remain)
+      ? { pre: acc.pre ?? 0, post: acc.post ?? 0, ...acc.span }
+      : undefined;
+  return {
+    span, layoutTotal: acc.layoutTotal, startAt: acc.startAt, endsEmpty: acc.empties, steps: acc.steps, delta: acc.delta, deltaKnown: acc.known, statedTotal: total, statedChange: change, joinRound: acc.join, turns: acc.turns, markersPlaced: acc.markers };
 }

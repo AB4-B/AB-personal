@@ -7,6 +7,7 @@ import { Home } from './screens/Home';
 import { NewProject } from './screens/NewProject';
 import { Knit } from './screens/Knit';
 import { Outline } from './screens/Outline';
+import { PatternCheck } from './screens/PatternCheck';
 import { PdfViewer } from './screens/PdfViewer';
 import { ProjectDetail } from './screens/ProjectDetail';
 
@@ -42,6 +43,7 @@ export function App() {
     const id = path[1];
     if (path[2] === 'knit') return <Knit projectId={id} />;
     if (path[2] === 'outline') return <Outline projectId={id} />;
+    if (path[2] === 'check') return <PatternCheck projectId={id} />;
     if (path[2] === 'pdf') return textSource ? <TextViewer projectId={id} /> : <PdfViewer projectId={id} />;
     if (path[2] === 'chart' && path[3]) return <ChartViewer projectId={id} imageId={path[3]} />;
     return <ProjectDetail projectId={id} />;

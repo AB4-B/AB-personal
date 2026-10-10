@@ -13,7 +13,7 @@ import { splitAtSentences } from '../model/text';
 import type { KnitPrefs } from '../model/types';
 import { techniquesIn } from './techniques';
 import { explain } from '../engine/explain';
-import { interpretSequence, stripNotes } from './ops';
+import { interpretSequence, withSide, stripNotes, type Span } from './ops';
 
 export type Construction = 'flat' | 'round';
 
@@ -92,6 +92,9 @@ export interface Translation {
 interface Acc extends Translation {
   ctx: TCtx;
   held: number;
+  /** the count the previous sentence left, when that sentence worked it out for certain (so a following "[N sts]" can be checked) */
+  sureCount?: number;
+  prevSure?: number;
 }
 
 const num = (s: string) => parseNumF(s);
@@ -515,8 +518,10 @@ const RECOGNIZERS: Rec[] = [
   },
   {
     name: 'knit-rows',
-    re: /^(?:work|knit) (\d+) (rows?|rounds?)(?: (?:in )?(?:garter|stockinette) stitch)?\.?$/i,
-    run: (m, a) => {
+    // "work N rows" on its own does not say which stitch, and stockinette is not "knit every row": those are not guessed
+    re: /^(?:(?:knit) (\d+) (rows?|rounds?)|work (\d+) (rows?|rounds?) (?:in )?garter(?: stitch)?)\.?$/i,
+    run: (m0, a) => {
+      const m = m0[1] ? [m0[0], m0[1], m0[2]] : [m0[0], m0[3], m0[4]];
       const k = Number(m[1]);
       const round = /round/i.test(m[2]);
       if (round) roundNote(a);
@@ -595,8 +600,36 @@ function evenly(a: Acc, count: number, total: number, flat: boolean, excludeBand
   step(a, `You should now have ${total} stitches.`);
   a.checkpoint = { expected: total, label: 'after evenly spaced increases' };
   a.next.stitches = total;
+  a.sureCount = total;
   a.assumptions.push('Increase method not stated in the pattern: you choose. The spacing is calculated by Knit Guide.');
   a.why.push('Spreading the increases evenly makes the fabric grow smoothly instead of flaring in one place.');
+}
+
+/** Evenly spaced decreases: spacing is CALCULATED by Knit Guide from the count before the row, and labelled so. */
+function evenlyDec(a: Acc, count: number, stated: number | undefined, flat: boolean) {
+  const before = a.ctx.stitches;
+  if (flat) flatNote(a);
+  else roundNote(a);
+  if (before === undefined || count <= 0 || before < 3 * count) {
+    step(a, `⚠ GUIDANCE NEEDS REVIEW: the stitch count before this ${flat ? 'row' : 'round'} is not known, so the spacing of ${count} decreases cannot be worked out.`, { review: true });
+    a.review = true;
+    return;
+  }
+  const total = before - count;
+  const rest = before - 2 * count; // stitches that are knitted plainly between the decreases
+  const lo = Math.floor(rest / count);
+  const nHi = rest - lo * count; // this many gaps get one more stitch
+  const runs: string[] = [];
+  if (count - nHi > 0) runs.push(`${count - nHi} × (knit ${lo}, k2tog)`);
+  if (nHi > 0) runs.push(`${nHi} × (knit ${lo + 1}, k2tog)`);
+  step(a, `Decrease ${count} stitches evenly across the ${flat ? 'row' : 'round'}. The pattern does not say which decrease to use: k2tog is used below, ssk is also fine.`, { tech: ['evenly'] });
+  step(a, `Spacing (calculated by Knit Guide from your ${before} stitches): ${runs.join(', then ')}. That uses all ${before} stitches.`);
+  step(a, `You should now have ${total} stitches.`);
+  a.checkpoint = { expected: stated ?? total, label: 'after evenly spaced decreases' };
+  if (stated !== undefined && stated !== total) a.assumptions.push(`Check: ${before} − ${count} is ${total}, but the pattern says ${stated}. Trust the pattern and recount.`);
+  setStitches(a, stated ?? total);
+  a.sureCount = stated ?? total;
+  a.assumptions.push('Decrease method not stated in the pattern: you choose. The spacing is calculated by Knit Guide.');
 }
 
 /* ------------------------------------------------------- general vocabulary */
@@ -614,6 +647,8 @@ interface Def {
   steps: TStep[];
   delta?: number;
   count?: number;
+  /** the designer's stitch total printed after this round ("[30 sts]") */
+  stated?: number;
 }
 
 const mkStep = (text: string, tech: string[] = techniquesIn(text), extra: Partial<TStep> = {}): TStep => ({ text, tech, ...extra });
@@ -632,8 +667,21 @@ function setStitches(a: Acc, k: number | undefined) {
   a.ctx.stitches = k;
 }
 
-function applyCounts(a: Acc, r: { delta: number; deltaKnown: boolean; statedTotal?: number; statedChange?: number; startAt?: number; endsEmpty?: boolean; layoutTotal?: number }, label: string, w?: Work, checkOnly = false) {
+function applyCounts(a: Acc, r0: { delta: number; deltaKnown: boolean; statedTotal?: number; statedChange?: number; startAt?: number; endsEmpty?: boolean; layoutTotal?: number; span?: Span }, label: string, w?: Work, checkOnly = false) {
+  let r = r0;
   const before = r.startAt ?? a.ctx.stitches;
+  // a repeat that runs to the end: how many repeats fit in the stitches you have?
+  if (r.span && before !== undefined) {
+    const sp = r.span;
+    const left = before - sp.pre - sp.remain;
+    if (sp.post !== sp.remain) {
+      a.assumptions.push(`Check ${label}: the repeat stops with ${sp.remain} stitch${sp.remain === 1 ? '' : 'es'} left, but what follows uses ${sp.post}. Check the original.`);
+    } else if (left >= 0 && left % sp.groupUse === 0) {
+      if (!r.deltaKnown) r = { ...r, delta: r.delta + (left / sp.groupUse) * sp.groupDelta, deltaKnown: true };
+    } else {
+      a.assumptions.push(`Check ${label}: the repeat does not fit evenly into your ${before} stitches (${sp.groupUse} stitches per repeat). Recount before you start.`);
+    }
+  }
   if (r.layoutTotal !== undefined && before !== undefined && r.layoutTotal !== before) {
     a.assumptions.push(`Check ${label}: the parts of this row add up to ${r.layoutTotal} stitches, but you should have ${before}. Recount before you start.`);
   }
@@ -687,7 +735,11 @@ function emitDef(a: Acc, d: Def) {
   a.steps.push(mkStep(`${d.label}:`, [], { note: true }));
   a.steps.push(...d.steps);
   const before = a.ctx.stitches;
-  if (d.delta !== undefined && before !== undefined && d.delta !== 0) setStitches(a, before + d.delta);
+  if (d.stated !== undefined) {
+    if (before !== undefined && d.delta !== undefined && before + d.delta !== d.stated) a.assumptions.push(`Check ${d.label}: ${before} ${d.delta >= 0 ? '+' : '−'} ${Math.abs(d.delta)} is ${before + d.delta}, but the pattern says ${d.stated}. Recount and trust the pattern.`);
+    a.checkpoint = { expected: d.stated, label: 'count given by the pattern' };
+    setStitches(a, d.stated);
+  } else if (d.delta !== undefined && before !== undefined && d.delta !== 0) setStitches(a, before + d.delta);
 }
 
 function consumeRepeat(a: Acc, w: Work, unit: 'round' | 'row', times: number | undefined, from?: number, to?: number, statedRounds?: number, until?: RepeatBlock['until']): boolean {
@@ -897,6 +949,42 @@ const GENERIC: Rec[] = [
     },
   },
   {
+    // Flax: after the last short row, every doubled stitch is worked together with its two loops as one stitch
+    name: 'short-row-closing-round',
+    re: /^next (round|row):? double the (?:stitch|st),? (knit|purl) to (cb|the centre back|the center back)(?: marker)?,? (?:sm|slip marker),? then work one complete (?:round|row),? working each (?:of the )?doubled (?:sts|stitches) together(?: (?:as one|to form a single stitch))?(?: using (k2tog|p2tog|ssk))?(?:,? and keeping garter panels in pattern)?$/i,
+    run: (m, a) => {
+      const r = withSide('RS', () => interpretSequence(`double the stitch, ${m[2].toLowerCase()} to CB, SM`));
+      if (!r) {
+        step(a, `⚠ GUIDANCE NEEDS REVIEW: ${m[0]}`, { review: true, original: m[0] });
+        a.review = true;
+        return;
+      }
+      for (const st of r.steps) a.steps.push(fromOp(st));
+      step(a, `Then work one complete ${m[1].toLowerCase()}: wherever you reach a doubled stitch (it shows as 2 loops over the needle), work its two loops together as ONE stitch${m[4] ? ` using ${m[4].toLowerCase()}` : ''}. All other stitches are worked as before.`, { tech: ['k2tog'] });
+      if (/garter panels/i.test(m[0])) step(a, 'Keep the garter panels in pattern as you go.');
+      a.why.push('The doubled stitches closed the gaps the short rows made. Working each one together returns it to a single stitch, so the stitch count does not change.');
+    },
+  },
+  {
+    name: 'evenly-spaced-change',
+    re: /^(?:(?:knit|purl|work)(?: 1 (?:row|round))?,? (?:and |then )?)?(increase|inc|decrease|dec)(?:ing)? (\d+) (?:sts|stitches) evenly(?: spaced)?(?: (?:across|around))?(?: (?:the|this))?(?: next)?(?: (?:row|round))?(?:\s*\[(\d+) (?:sts|stitches)\]|\s*=\s*(\d+) (?:sts|stitches)|,? (?:you should (?:now )?have|giving you|to) (\d+) (?:sts|stitches))?$/i,
+    run: (m, a) => {
+      const inc = /^inc/i.test(m[1]);
+      const count = Number(m[2]);
+      const stated = m[3] ?? m[4] ?? m[5] ? Number(m[3] ?? m[4] ?? m[5]) : undefined;
+      const flat = (a.ctx.construction ?? a.construction) !== 'round';
+      if (!inc) return evenlyDec(a, count, stated, flat);
+      const total = stated ?? (a.ctx.stitches !== undefined ? a.ctx.stitches + count : 0);
+      if (a.ctx.stitches === undefined) {
+        step(a, `⚠ GUIDANCE NEEDS REVIEW: the stitch count before this ${flat ? 'row' : 'round'} is not known, so the spacing of ${count} increases cannot be worked out.`, { review: true });
+        a.review = true;
+        return;
+      }
+      if (stated !== undefined && stated !== a.ctx.stitches + count) a.assumptions.push(`Check: ${a.ctx.stitches} + ${count} is ${a.ctx.stitches + count}, but the pattern says ${stated}. Trust the pattern and recount.`);
+      evenly(a, count, total, flat, false);
+    },
+  },
+  {
     name: 'increase-evenly-general',
     re: /^(?:(?:knit|work) )?(?:increasing|increase) (\d+) (?:sts|stitches)(?: evenly)?(?: spaced)?(?: (?:across|around))?(?: the (?:row|round))?$/i,
     run: (m, a, s) => {
@@ -912,10 +1000,20 @@ const GENERIC: Rec[] = [
     },
   },
   {
+    // "[2 sts dec]" / "[8 sts inc - 2 sts per section]" say how many stitches a row changes by. They are NOT a total.
+    name: 'stated-change-only',
+    re: /^\[(\d+) (?:sts|stitches) (inc|dec)[a-z]*\b(?:\s*[-–,]\s*([^\]]*))?\]\.?$/i,
+    run: (m, a) => {
+      const n = Number(m[1]);
+      step(a, `The pattern says this ${/^inc/i.test(m[2]) ? 'adds' : 'removes'} ${n} stitch${n === 1 ? '' : 'es'}${m[3] ? ` (${m[3].replace(/\bsts\b/g, 'stitches')})` : ''}.`, { note: true });
+    },
+  },
+  {
     name: 'stated-count-only',
-    re: /^\[(\d+) (?:[a-z]+ )?(?:sts|stitches)\b(?:,\s*)?([^\]]*)\]\.?$/i,
+    re: /^\[(\d+) (?:[a-z]+ )?(?:sts|stitches)\b(?!\s*(?:inc|dec))(?:,\s*)?([^\]]*)\]\.?$/i,
     run: (m, a) => {
       const k = Number(m[1]);
+      if (a.prevSure !== undefined && a.prevSure !== k) a.assumptions.push(`Check: the steps above give ${a.prevSure} stitches, but the pattern says ${k}. Trust the pattern and recount.`);
       step(a, `CHECK: you should have ${k} stitches in total.`);
       for (const part of (m[2] ?? '').split(/,\s*/).filter(Boolean)) step(a, `CHECK: ${part.replace(/\bsts\b/, 'stitches')}.`);
       a.checkpoint = { expected: k, label: 'count given by the pattern' };
@@ -1047,6 +1145,8 @@ function handleRest(a: Acc, rest: string) {
 }
 
 function handleSentence(sentence: string, acc: Acc, w: Work) {
+  acc.prevSure = acc.sureCount;
+  acc.sureCount = undefined;
   const orig = sentence.trim();
   const s = orig
     .replace(/\.$/, '')
@@ -1097,7 +1197,8 @@ function handleSentence(sentence: string, acc: Acc, w: Work) {
   if (hm) {
     const head = hm[1].trim();
     const { body, total, change } = stripNotes(hm[2].replace(/\.$/, ''));
-    const r = interpretSequence(body);
+    const side = head.match(/\((RS|WS)\)/i)?.[1]?.toUpperCase() as 'RS' | 'WS' | undefined;
+    const r = withSide(side, () => interpretSequence(body));
     if (r) {
       const numbered = head.match(/^(?:short )?(?:rows?|rounds?|rnds?) (\d+)/i);
       const collectable = !!numbered || /^(?:decrease|increase|plain)\s+(?:rows?|rounds?)$/i.test(head);
@@ -1108,6 +1209,7 @@ function handleSentence(sentence: string, acc: Acc, w: Work) {
           n: numbered ? Number(numbered[1]) : undefined,
           steps: r.steps.map(fromOp),
           delta: r.deltaKnown ? r.delta : undefined,
+          stated: total,
         });
         if (r.joinRound) roundNote(acc);
         if (change !== undefined) applyCounts(acc, { ...r, statedTotal: undefined, statedChange: change }, head, w, true);

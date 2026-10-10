@@ -64,6 +64,27 @@ function actionSteps(action: string): { steps: TStep[]; delta?: number; review: 
     return { ...inner, steps: [mk(`New layout${head[1] ? ` (${head[1]})` : ''}:`, { note: true }), ...inner.steps] };
   }
   a = a.replace(/\s*\(=[^)]*\)\s*$/, '');
+  // a designer's aside in dashes at the start ("– less for the larger sizes because … –") is kept as a note
+  let aside: TStep | undefined;
+  const asideM = a.match(/^[–-]\s*([^–]+?)\s*[–-]\s*(.+)$/);
+  if (asideM) {
+    aside = mk(`Designer's note: ${asideM[1]}.`, { note: true });
+    a = asideM[2];
+  }
+  const cap = a.match(/^bind off for sleeve cap each side at the beg(?:inning)? of every row:\s*(.+?),\s*then (\d+) sts? each side until (?:piece|the piece) measures (\d+(?:\.\d+)?) cm,?\s*now bind off (\d+) sts? each side (\d+) times?(?: and bind off (?:the )?remaining sts)?$/i);
+  if (cap) {
+    const items = cap[1].split(/\s*,\s*/).map((x) => x.match(/^(\d+) sts? (\d+) times?$/i));
+    if (items.every(Boolean)) {
+      const rows = (n: number) => (n === 1 ? 'the next row' : `each of the next ${n} rows`);
+      const steps = (items as RegExpMatchArray[])
+        .filter((x) => Number(x[2]) > 0)
+        .map((x) => mk(`Bind off ${x[1]} stitch${x[1] === '1' ? '' : 'es'} at the start of ${rows(Number(x[2]))}.`));
+      steps.push(mk(`Then bind off ${cap[2]} stitches at the start of every row until the piece measures ${cap[3]} cm (measure laid flat from the cast-on edge).`));
+      steps.push(mk(`Now bind off ${cap[4]} stitches at the start of ${rows(Number(cap[5]) * 2)}.`));
+      steps.push(mk('Bind off all the remaining stitches.'));
+      return { steps: aside ? [aside, ...steps] : steps, review: false };
+    }
+  }
   const neck = a.match(/^(?:now )?dec(?:rease)? for (?:the )?neckline\b[^:]*:\s*(\d+) sts?$/i);
   if (neck) {
     const n = Number(neck[1]);

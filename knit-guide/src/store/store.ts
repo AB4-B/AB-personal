@@ -628,6 +628,15 @@ export const saveGuidanceOverride = (id: string, insId: string, steps: string[] 
     else k.guidanceOverrides[insId] = { steps, at: now() };
   }, false);
 
+/** The knitter looked at a stitch-count difference and accepts it (or takes the acceptance back). */
+export const acknowledgeCheck = (id: string, insId: string, on: boolean) =>
+  mutate(id, (p) => {
+    const k = knitOf(p);
+    k.checked = { ...(k.checked ?? {}) };
+    if (on) k.checked[insId] = now();
+    else delete k.checked[insId];
+  }, false);
+
 /** The knitter confirms the measurement for a buttonhole / measured event is reached. */
 export const setMeasuredDue = (id: string, key: string, due: boolean) =>
   mutate(id, (p) => {

@@ -36,7 +36,7 @@ interface Block {
   emphasis: boolean;
 }
 
-const JUNK = [/^click image to enlarge$/i, /^download pdf$/i];
+const JUNK = [/^click image to enlarge$/i, /^download pdf$/i, /\bfacebook-square\b|\bpinterest envelope\b|\bravelry pinterest\b|^[^.]{0,40}\bwww\.[a-z0-9.-]+\.[a-z]{2,}\b[^.]{0,6}$/i];
 const CAPTION_RE = /\b(chart|diagram|schematic)\s*$/i;
 
 /* ---------------------------------------------------------------- captions */
@@ -154,6 +154,8 @@ const INFO_DEFINITION = /^[A-Z][\w -]{0,40}\b(is|are) (worked|marked|used|made)\
 /** Prose that explains rather than instructs. Everything else is treated as an instruction. */
 function classify(text: string): 'action' | 'info' {
   if (/^stitch count\b/i.test(text)) return 'info';
+  // headings of a designer's row-by-row schedule ("Cardigan: row-by-row guide") are titles, not steps
+  if (/^[A-Za-z][\w ]{0,30}:\s*(?:row|round)[- ]by[- ](?:row|round) guide$/i.test(text)) return 'info';
   if (isCapsText(text) && /[!.]$/.test(text)) return 'info';
   if (/^(row|round|rows|rounds|rnd|set-?up|next)\b/i.test(text)) return 'action';
   if (/^at the same time\b/i.test(text)) return 'action';
@@ -170,7 +172,9 @@ function isHeadingBlock(b: Block): { level: 1 | 2; title: string } | null {
   const caps = isCapsText(t.replace(/\([^)]*\)/g, ''));
   if (words > (caps ? 16 : 7) || /[.!?,;]$/.test(b.text) || (!b.emphasis && t.includes(','))) return null;
   if (ROW_LINE.test(t) || /^(row|round)s?\b/i.test(t)) return null;
-  if (/^[*\-•]/.test(t)) return null;
+  if (/^[*\-•(]/.test(t)) return null;
+  // a bold table row, a page footer or a web address is not a heading
+  if ((t.match(/\d[\d.,/]*["”″']?(?:\s|$)/g) ?? []).length >= 3 || /\bwww\.|https?:|\.(?:com|net|org)\b/i.test(t)) return null;
   if (b.emphasis) return { level: /^(all )?sizes?\b/i.test(t) ? 2 : 1, title: t };
   if (words <= 4 && /^[A-Z]/.test(t) && !/\d/.test(t) && !/^(enjoy|bind|cast|knit|purl)/i.test(t)) {
     return { level: 2, title: t };

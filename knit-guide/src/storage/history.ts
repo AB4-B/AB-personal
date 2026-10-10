@@ -198,7 +198,9 @@ export function createCheckpointService(store: HistoryStore, clock: () => number
     },
     async list(projectId) {
       const all = await store.list();
-      return (projectId ? all.filter((c) => c.projectId === projectId) : all).sort((a, b) => b.createdAt - a.createdAt);
+      const seqOf = (c: Checkpoint) => Number(c.id.split(':').pop()) || 0;
+      // newest first; two points made in the same millisecond keep their creation order
+      return (projectId ? all.filter((c) => c.projectId === projectId) : all).sort((a, b) => b.createdAt - a.createdAt || seqOf(b) - seqOf(a));
     },
     pattern: (hash) => store.pattern(hash),
   };

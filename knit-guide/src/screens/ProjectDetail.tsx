@@ -9,6 +9,8 @@ import { prefsOf } from '../guidance/flow';
 import { setPrefs, addModification, deleteModification, editModification, renameProject, setPhoto, setSize, setStatus, updateSetup, useStore } from '../store/store';
 import type { Modification, Pattern, Project, ProjectSetup } from '../model/types';
 import { SaveStatus } from './Backup';
+import { useCheck } from './PatternCheck';
+import { needsAttention } from '../guidance/check';
 import { isStale, isUntouched, rereadPattern } from '../pdf/reread';
 import { ConfirmButton, IconMore, IconPdf, PhotoInput, Sheet, ToastHost, TopBar, YarnIcon, useBlobUrl } from '../ui/common';
 import { go } from '../ui/router';
@@ -139,6 +141,8 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
   const facts = projectFacts(pattern, project.size);
   const gc = gaugeCheck(pattern, project);
   const resolution = analyzeResolution(pattern, project.size, project.sizeOverrides ?? {});
+  const check = useCheck(pattern, project);
+  const attention = check.items.filter(needsAttention).length;
 
   return (
     <div className="screen">
@@ -167,6 +171,12 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
         ) : (
           <button className="btn primary big block" onClick={() => go(`/p/${project.id}/knit`)} data-testid="start-knitting">START KNITTING</button>
         )}
+
+        <button className={`check-card${attention ? ' check-warn' : ''}`} data-testid="open-check" onClick={() => go(`/p/${project.id}/check`)} style={{ textAlign: 'left', font: 'inherit', width: '100%' }}>
+          <span className="caps">PATTERN CHECK · SIZE {project.size}</span>
+          <b data-testid="check-summary">{attention === 0 ? `✓ All ${check.total} steps interpreted` : `${check.interpreted} of ${check.total} steps interpreted · ${attention} need${attention === 1 ? 's' : ''} a look`}</b>
+          <span className="small-text">{check.countDifferences ? `${check.countDifferences} stitch-count difference${check.countDifferences === 1 ? '' : 's'} · ` : ''}{check.unsupported ? `${check.unsupported} unsupported technique${check.unsupported === 1 ? '' : 's'} or chart${check.unsupported === 1 ? '' : 's'} · ` : ''}Tap to see details</span>
+        </button>
 
         {photo ? <img className="hero-img" src={photo} alt={project.name} /> : <div className="placeholder-img"><YarnIcon size={72} /></div>}
         <div className="row wrap">
