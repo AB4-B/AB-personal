@@ -22,6 +22,7 @@ import {
   addStitchCounter, attachStopNote, finishAndAdvance, knitFromHere, measuredEventDone, phaseBack, phaseDone, phaseSkip, timelineEvent, quickStop, recordMeasurement, saveCheckpoint, saveGuidanceOverride,
   setMeasuredDue, setTrackerFirst, setTrackerRow, tickStep, useStore, yokeRowBack, yokeRowDone,
 } from '../store/store';
+import { SaveStatus } from './Backup';
 import { IconPdf, IconStop, Sheet, ToastHost, TopBar, toast } from '../ui/common';
 import { go } from '../ui/router';
 import { progressFraction } from '../model/helpers';
@@ -599,6 +600,7 @@ export function Knit({ projectId }: { projectId: string }) {
         }
       />
       <div className="page-pad stack kpage" data-testid="knit-screen">
+        <SaveStatus compact />
         {facts.flags.length > 0 && (
           <button className="warnbox review-box" style={{ textAlign: 'left', font: 'inherit' }} data-testid="measurement-review-banner" onClick={() => go(`/p/${project.id}/outline`)}>
             <b>⚠ MEASUREMENT NEEDS REVIEW</b> Two measurements disagree. Tap to choose in Project Data.

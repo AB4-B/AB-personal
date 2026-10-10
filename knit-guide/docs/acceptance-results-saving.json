@@ -1,0 +1,41 @@
+{
+  "ran": "2026-10-10T17:12:09.383Z",
+  "results": [
+    {
+      "name": "SAVE STATUS: saved only after the write; a failing write says NOT SAVED, survives a reload, then saves",
+      "pass": true,
+      "detail": "failed -> shown -> replayed -> saved"
+    },
+    {
+      "name": "LOAD ERROR: a library that cannot be read shows an error, never an empty library",
+      "pass": true,
+      "detail": "error shown, retry loads the projects"
+    },
+    {
+      "name": "RECOVERY POINTS: restore an earlier point, the current state is saved first and can be restored too",
+      "pass": true,
+      "detail": "restore + undo"
+    },
+    {
+      "name": "LOST LIBRARY: the main database is wiped, projects come back from recovery points",
+      "pass": true,
+      "detail": "project recovered with its pattern"
+    },
+    {
+      "name": "BACKUP FILE: not counted until checked; a damaged file is refused; restore never replaces newer progress",
+      "pass": true,
+      "detail": "verified only after checking; newer progress kept"
+    },
+    {
+      "name": "RE-READ with progress: same instructions are re-read after a recovery point; changed instructions are refused",
+      "pass": true,
+      "detail": "refused when unsafe, safe re-read keeps the place"
+    },
+    {
+      "name": "OFFLINE: knitting with no network is saved on the phone and survives a reload",
+      "pass": true,
+      "detail": "saved offline"
+    }
+  ],
+  "errors": []
+}

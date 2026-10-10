@@ -20,18 +20,24 @@ import type {
   KnitState,
 } from '../model/types';
 import { createRepo, type Repo } from '../storage/db';
+import { createCheckpointService, createHistory, type CheckpointReason } from '../storage/history';
 
 export const repo: Repo = createRepo();
+export const history = createCheckpointService(createHistory());
 
 interface State {
   loaded: boolean;
   patterns: Record<string, Pattern>;
   projects: Record<string, Project>;
-  /** bumped on every persisted write; lets the UI show "saved" */
+  /** set when the stored library could not be read: the app shows an error, never an empty library */
+  loadError?: string;
+  /** 'saved' only after IndexedDB confirmed the newest change; 'failed' while a write is being retried */
+  saveStatus: 'saved' | 'saving' | 'failed';
+  /** when IndexedDB last confirmed a write */
   lastSavedAt: number;
 }
 
-export const useStore = create<State>(() => ({ loaded: false, patterns: {}, projects: {}, lastSavedAt: 0 }));
+export const useStore = create<State>(() => ({ loaded: false, patterns: {}, projects: {}, saveStatus: 'saved', lastSavedAt: 0 }));
 
 /**
  * Durability: IndexedDB writes are asynchronous, so a tap immediately followed by closing Safari could
@@ -62,27 +68,53 @@ function walRead(): Project[] {
 
 const dirty = new Map<string, Project>();
 const writers = new Map<string, Promise<void>>();
+const retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const attempts = new Map<string, number>();
+const RETRY_MS = [2000, 5000, 15000, 30000, 60000];
+
 function persist(project: Project): Promise<void> {
   walWrite(project);
   dirty.set(project.id, project); // only the newest state per project needs writing
-  const running = writers.get(project.id);
+  useStore.setState({ saveStatus: 'saving' });
+  return drain(project.id);
+}
+
+function drain(id: string): Promise<void> {
+  const running = writers.get(id);
   if (running) return running;
   const run = (async () => {
-    while (dirty.has(project.id)) {
-      const p = dirty.get(project.id)!;
-      dirty.delete(project.id);
+    while (dirty.has(id)) {
+      const p = dirty.get(id)!;
       try {
         await repo.putProject(p);
+        if (dirty.get(id) === p) dirty.delete(id); // a newer change may have arrived while writing
         walClear(p);
+        attempts.delete(id);
       } catch (e) {
-        console.error('save failed (write-ahead copy kept)', e);
+        console.error('save failed (write-ahead copy kept, will retry)', e);
+        break;
       }
     }
-    writers.delete(project.id);
-    useStore.setState({ lastSavedAt: Date.now() });
+    writers.delete(id);
+    if (dirty.has(id)) {
+      const n = attempts.get(id) ?? 0;
+      attempts.set(id, n + 1);
+      clearTimeout(retryTimers.get(id));
+      retryTimers.set(id, setTimeout(() => void drain(id), RETRY_MS[Math.min(n, RETRY_MS.length - 1)]));
+      useStore.setState({ saveStatus: 'failed' });
+    } else if (dirty.size === 0 && writers.size === 0) {
+      useStore.setState({ saveStatus: 'saved', lastSavedAt: Date.now() });
+      const pr = useStore.getState().projects[id];
+      if (pr) void history.maybe(pr, useStore.getState().patterns[pr.patternId], 'automatic', 15 * 60 * 1000);
+    }
   })();
-  writers.set(project.id, run);
+  writers.set(id, run);
   return run;
+}
+
+/** Try every unsaved project again now (used when the app comes back to the front or the network returns). */
+export function retrySaves() {
+  for (const id of dirty.keys()) void drain(id);
 }
 
 /** Wait for pending writes (used by tests and on pagehide). */
@@ -91,6 +123,7 @@ export async function flushWrites() {
 }
 
 export async function initStore() {
+  useStore.setState({ loaded: false, loadError: undefined });
   try {
     const { patterns, projects } = await repo.loadAll();
     // replay write-ahead copies that never reached IndexedDB (e.g. Safari closed right after a tap)
@@ -104,16 +137,40 @@ export async function initStore() {
     }
     useStore.setState({
       loaded: true,
+      loadError: undefined,
       patterns: Object.fromEntries(patterns.map((p) => [p.id, p])),
       projects: Object.fromEntries(projects.map((p) => [p.id, p])),
     });
+    // a first recovery point for every project that has none yet (also protects projects made before this existed)
+    for (const pr of projects) void history.maybe(pr, patterns.find((x) => x.id === pr.patternId), 'first', 0);
   } catch (e) {
-    console.error(e);
-    useStore.setState({ loaded: true });
+    console.error('load failed', e);
+    // never show an empty library for a library that could not be read
+    useStore.setState({ loaded: true, loadError: e instanceof Error ? e.message || String(e) : String(e), patterns: {}, projects: {} });
   }
 }
 
+/** Put a project (and optionally its pattern) into the library and save it. Used by restore. */
+export async function adoptProject(project: Project, pattern?: Pattern) {
+  if (useStore.getState().loadError) throw new Error('The library could not be read, so nothing can be restored into it yet.');
+  if (pattern) await repo.putPattern(pattern);
+  useStore.setState((s) => ({
+    patterns: pattern ? { ...s.patterns, [pattern.id]: pattern } : s.patterns,
+    projects: { ...s.projects, [project.id]: project },
+  }));
+  await persist(project);
+}
+
+/** Take a recovery point of a project right now (before something risky, or when asked). */
+export async function checkpointNow(id: string, reason: CheckpointReason): Promise<boolean> {
+  const pr = useStore.getState().projects[id]; // the state as it is NOW, before whatever comes next
+  if (!pr) return false;
+  const pat = useStore.getState().patterns[pr.patternId];
+  return history.add(pr, pat, reason);
+}
+
 function mutate(id: string, fn: (p: Project) => void, touch = true): Project | undefined {
+  if (useStore.getState().loadError) return; // nothing was loaded, so nothing may be written over the stored library
   const cur = useStore.getState().projects[id];
   if (!cur) return;
   const next = structuredClone(cur);
@@ -202,11 +259,13 @@ export const setStatus = (id: string, status: Project['status']) => mutate(id, (
 export const updateSetup = (id: string, patch: Partial<ProjectSetup>) =>
   mutate(id, (p) => void Object.assign(p.setup, patch), false);
 /** Changing size invalidates hand-confirmed size values, so they are cleared with it. */
-export const setSize = (id: string, size: string) =>
-  mutate(id, (p) => {
+export const setSize = (id: string, size: string) => {
+  if (useStore.getState().projects[id]?.size !== size) void checkpointNow(id, 'before size change');
+  return mutate(id, (p) => {
     if (p.size !== size) p.sizeOverrides = {};
     p.size = size;
   }, false);
+};
 
 export const setOverride = (id: string, key: string, value: string | null) =>
   mutate(id, (p) => {
@@ -231,15 +290,22 @@ export async function deleteProject(id: string) {
   const s = useStore.getState();
   const proj = s.projects[id];
   if (!proj) return;
-  await flushWrites();
+  await checkpointNow(id, 'before delete');
+  retryTimers.delete(id);
+  dirty.delete(id);
+  try { localStorage.removeItem(WAL + id); } catch { /* ignore */ }
   await repo.deleteProject(id);
   if (proj.photoId) await repo.deleteFile(proj.photoId);
   const pat = s.patterns[proj.patternId];
   const stillUsed = Object.values(s.projects).some((p) => p.id !== id && p.patternId === proj.patternId);
   if (pat && !stillUsed) {
     await repo.deletePattern(pat.id);
-    await repo.deleteFile(pat.fileId);
-    for (const im of pat.images) if (im.fileId) await repo.deleteFile(im.fileId);
+    // a restored copy of this pattern may still use the same PDF and images
+    const filesShared = Object.values(s.patterns).some((o) => o.id !== pat.id && (o.fileId === pat.fileId || o.images.some((im) => pat.images.some((pi) => pi.fileId && pi.fileId === im.fileId))));
+    if (!filesShared) {
+      await repo.deleteFile(pat.fileId);
+      for (const im of pat.images) if (im.fileId) await repo.deleteFile(im.fileId);
+    }
   }
   useStore.setState((st) => {
     const projects = { ...st.projects };
@@ -513,8 +579,16 @@ export async function savePattern(p: Pattern) {
 /** Flush pending writes when the page is hidden (Safari tab switch, lock, close). */
 export function installLifecycleFlush() {
   const flush = () => void flushWrites();
-  document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && flush());
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      flush();
+      // leaving the app: a recovery point of anything that changed since the last one
+      const st = useStore.getState();
+      if (!st.loadError) for (const pr of Object.values(st.projects)) void history.maybe(pr, st.patterns[pr.patternId], 'leaving app', 2 * 60 * 1000);
+    } else retrySaves();
+  });
   window.addEventListener('pagehide', flush);
+  window.addEventListener('online', retrySaves);
 }
 
 

@@ -1,5 +1,5 @@
 {
-  "ran": "2026-10-04T14:59:31.845Z",
+  "ran": "2026-10-10T17:14:27.579Z",
   "results": [
     {
       "name": "K0 import the synthetic pattern, size L, start knitting",
@@ -110,11 +110,6 @@
       "name": "GENERAL cm jacket: swatch gives row ESTIMATES; measuring makes events due; Quick Stop restores",
       "pass": true,
       "detail": "ok"
-    },
-    {
-      "name": "BACKUP: automatic copy is taken, a backup file downloads, and both restore a deleted project",
-      "pass": true,
-      "detail": "file + automatic copy restore"
     },
     {
       "name": "RE-READ: a not-started project made with an older reader is re-read automatically; text is repaired",

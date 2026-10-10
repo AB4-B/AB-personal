@@ -8,6 +8,7 @@ import { findInstruction, hasProgress, sourceLabel } from '../model/helpers';
 import { prefsOf } from '../guidance/flow';
 import { setPrefs, addModification, deleteModification, editModification, renameProject, setPhoto, setSize, setStatus, updateSetup, useStore } from '../store/store';
 import type { Modification, Pattern, Project, ProjectSetup } from '../model/types';
+import { SaveStatus } from './Backup';
 import { isStale, isUntouched, rereadPattern } from '../pdf/reread';
 import { ConfirmButton, IconMore, IconPdf, PhotoInput, Sheet, ToastHost, TopBar, YarnIcon, useBlobUrl } from '../ui/common';
 import { go } from '../ui/router';
@@ -119,7 +120,8 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
     setReading(true);
     setReadMsg('');
     try {
-      setReadMsg((await rereadPattern(p)) ? '✓ Pattern re-read with the latest reader.' : '⚠ The stored PDF was not found, so nothing changed.');
+      const r = await rereadPattern(p);
+      setReadMsg(r.ok ? r.message : `⚠ ${r.message}`);
     } catch (e) {
       setReadMsg(`⚠ Could not re-read: ${(e as Error).message}`);
     }
@@ -142,6 +144,7 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
     <div className="screen">
       <TopBar title={project.name} onBack={() => go('/')} right={<button className="iconbtn" aria-label="Edit details" onClick={() => setEditing(true)}><IconMore /></button>} />
       <div className="page-pad stack" style={{ gap: 16 }}>
+        <SaveStatus />
         {resume ? (
           <button className="continue" onClick={() => go(`/p/${project.id}/knit`)} data-testid="continue-card">
             <span className="caps" style={{ color: 'rgba(255,255,255,.8)' }}>Where you stopped</span>
@@ -206,7 +209,7 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
           {gc.level === 'ok' && <div className="done-banner" data-testid="gauge-ok">✓ Swatch matches the pattern gauge</div>}
           {gc.level === 'none' && <p className="muted small-text" style={{ margin: 0 }} data-testid="gauge-none">{gc.lines[0]}</p>}
           <button className="btn soft" onClick={() => setEditing(true)}>Edit details</button>
-          {isStale(pattern) && !isUntouched(project) && !reading && <div className="warnbox review-box" data-testid="reread-offer"><b>This pattern was read with an older reader.</b><div>Re-reading can fix scrambled text and size questions. Your knitting progress is kept, but it may not line up if instructions move.</div></div>}
+          {isStale(pattern) && !isUntouched(project) && !reading && <div className="warnbox review-box" data-testid="reread-offer"><b>This pattern was read with an older reader.</b><div>Re-reading can fix scrambled text and size questions. Because you have started knitting, it is only done when your place cannot move, and a recovery point is saved first.</div></div>}
           <ConfirmButton className="btn soft" label={reading ? 'Re-reading…' : 'Re-read pattern from the saved PDF'} confirmLabel="Tap again to re-read" onConfirm={() => void reread(project)} />
           {readMsg && <div className="small-text" data-testid="reread-msg" role="status">{readMsg}</div>}
         </section>

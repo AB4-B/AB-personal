@@ -5,6 +5,8 @@
 import type { Pattern, Project } from '../model/types';
 
 export interface Repo {
+  /** 'memory' means IndexedDB is unavailable and nothing will survive closing the app */
+  readonly kind: 'indexeddb' | 'memory';
   loadAll(): Promise<{ patterns: Pattern[]; projects: Project[] }>;
   putPattern(p: Pattern): Promise<void>;
   putProject(p: Project): Promise<void>;
@@ -33,7 +35,16 @@ function openDb(): Promise<IDBDatabase> {
 }
 
 class IdbRepo implements Repo {
-  private dbp = openDb();
+  readonly kind = 'indexeddb' as const;
+  private cached?: Promise<IDBDatabase>;
+  /** opened on demand, and opened again after a failure (a transient error must not break the app until restart) */
+  private get dbp(): Promise<IDBDatabase> {
+    if (!this.cached) {
+      this.cached = openDb();
+      this.cached.catch(() => { this.cached = undefined; });
+    }
+    return this.cached;
+  }
 
   private async tx<T>(store: (typeof STORES)[number], mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
     const db = await this.dbp;
@@ -83,6 +94,7 @@ class IdbRepo implements Repo {
 
 /** Fallback when IndexedDB is unavailable (e.g. some private modes): works for the session only. */
 class MemoryRepo implements Repo {
+  readonly kind = 'memory' as const;
   patterns = new Map<string, Pattern>();
   projects = new Map<string, Project>();
   files = new Map<string, Blob>();
